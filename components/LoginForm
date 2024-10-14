@@ -1,0 +1,51 @@
+import React, { useState } from 'react';
+import PropTypes from 'prop-types';
+
+const LoginForm = ({ onLogin }) => {
+  const [formData, setFormData] = useState({
+    identifier: '', // Can be username, email, or phone number
+    password: ''
+  });
+
+  const handleChange = (e) => {
+    setFormData({
+      ...formData,
+      [e.target.name]: e.target.value
+    });
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    onLogin(formData);
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="flex flex-col space-y-4">
+      <input
+        type="text"
+        name="identifier"
+        placeholder="Username/Email/Phone"
+        value={formData.identifier}
+        onChange={handleChange}
+        className="p-2 border rounded"
+      />
+      <input
+        type="password"
+        name="password"
+        placeholder="Password"
+        value={formData.password}
+        onChange={handleChange}
+        className="p-2 border rounded"
+      />
+      <button type="submit" className="bg-primary text-white p-2 rounded">
+        Login
+      </button>
+    </form>
+  );
+};
+
+LoginForm.propTypes = {
+  onLogin: PropTypes.func.isRequired
+};
+
+export default LoginForm;

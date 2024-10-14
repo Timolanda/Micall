@@ -1,0 +1,89 @@
+import React from 'react';
+
+// Shared Tailwind CSS class strings
+const textMutedForeground = 'text-muted-foreground';
+const paddingRounded = 'p-4 rounded-lg';
+const flexItemsCenterMb4 = 'flex items-center mb-4';
+
+const UserProfile = ({ profileImage, userName }) => (
+  <div className={flexItemsCenterMb4}>
+    <img className="w-6 h-6 mr-2" src={profileImage} alt={`${userName} Profile`} />
+    <h1 className="text-xl font-bold">{userName}</h1>
+  </div>
+);
+
+const UserInfo = ({ fullName, location }) => (
+  <div className={flexItemsCenterMb4}>
+    <div className="ml-4">
+      <h2 className="text-lg font-semibold">{fullName}</h2>
+      <p className={textMutedForeground}>{location}</p>
+    </div>
+  </div>
+);
+
+const StatsCard = ({ bgColor, textColor, value, label }) => (
+  <div className={`${bgColor} ${textColor} ${paddingRounded} text-center`}>
+    <span className="font-bold text-2xl">{value}</span>
+    <p>{label}</p>
+  </div>
+);
+
+const StatsGrid = ({ responders, ongoing, alerts }) => (
+  <div className="grid grid-cols-3 gap-4 mb-4">
+    <StatsCard bgColor="bg-primary" textColor="text-primary-foreground" value={responders} label="Responders" />
+    <StatsCard bgColor="bg-muted" textColor={textMutedForeground} value={ongoing} label="Ongoing" />
+    <StatsCard bgColor="bg-accent" textColor="text-accent-foreground" value={alerts} label="Alerts" />
+  </div>
+);
+
+const AddressCard = ({ address, city, zipCode, description }) => (
+  <div className={`bg-card ${paddingRounded} mb-4`}>
+    <p className="text-lg font-semibold">{address}</p>
+    <p className={textMutedForeground}>{`${address}, ${city}, ${zipCode}`}</p>
+    <p className={textMutedForeground}>{description}</p>
+  </div>
+);
+
+const ActionButtons = () => (
+  <div className="flex justify-between mb-4">
+    <button className="bg-destructive text-destructive-foreground p-2 rounded-lg">Emergency Alert</button>
+    <button className="bg-secondary text-secondary-foreground p-2 rounded-lg hover:bg-secondary/80">Cancel</button>
+  </div>
+);
+
+const AlertCategories = () => (
+  <div className="flex justify-around">
+    {['Medical', 'Fuel', 'Assault', 'Missing', 'Accident'].map((category) => (
+      <button key={category} className={textMutedForeground}>
+        {category}
+      </button>
+    ))}
+  </div>
+);
+
+const Dashboard = ({
+  profileImage,
+  userName,
+  fullName,
+  location,
+  responders,
+  ongoing,
+  alerts,
+  address,
+  city,
+  zipCode,
+  description,
+}) => {
+  return (
+    <div className="bg-background text-foreground p-4">
+      <UserProfile profileImage={profileImage} userName={userName} />
+      <UserInfo fullName={fullName} location={location} />
+      <StatsGrid responders={responders} ongoing={ongoing} alerts={alerts} />
+      <AddressCard address={address} city={city} zipCode={zipCode} description={description} />
+      <ActionButtons />
+      <AlertCategories />
+    </div>
+  );
+};
+
+export default Dashboard;

@@ -1,112 +1,100 @@
-import React, { useState } from 'react';
+const express = require('express');
+const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
 
-interface User {
-  username: string;
-  password: string;
-  token: string;
-}
+const router = express.Router();
 
-interface Props {}
+// In-memory user store (for demo purposes)
+let users = [];
 
-const AuthAPI: React.FC<Props> = () => {
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [token, setToken] = useState('');
-  const [error, setError] = useState('');
+// Secret key for JWT
+const JWT_SECRET = 'supersecretkey'; // Change this in production
 
-  const handleSignUp = () => {
-    if (username && password) {
-      const user: User = { username, password, token: generateToken() };
-      localStorage.setItem('user', JSON.stringify(user));
-      setIsLoggedIn(true);
-      setToken(user.token);
-    } else {
-      setError('Please enter both username and password');
-    }
-  };
+// Middleware to authenticate JWT token
+const authenticateToken = (req, res, next) => {
+  const token = req.header('Authorization')?.split(' ')[1];
+  
+  if (!token) return res.status(401).json({ message: 'Access denied, token missing!' });
 
-  const handleLogin = () => {
-    const storedUser = localStorage.getItem('user');
-    if (storedUser) {
-      const user: User = JSON.parse(storedUser);
-      if (user.username === username && user.password === password) {
-        setIsLoggedIn(true);
-        setToken(user.token);
-      } else {
-        setError('Invalid username or password');
-      }
-    } else {
-      setError('User not found');
-    }
-  };
-
-  const handleLogout = () => {
-    setIsLoggedIn(false);
-    setToken('');
-  };
-
-  const generateToken = () => {
-    return Math.random().toString(36).substr(2) + Math.random().toString(36).substr(2);
-  };
-
-  const validateToken = () => {
-    if (token) {
-      const storedUser = localStorage.getItem('user');
-      if (storedUser) {
-        const user: User = JSON.parse(storedUser);
-        return user.token === token;
-      }
-    }
-    return false;
-  };
-
-  return (
-    <div className="max-w-md mx-auto p-4 mt-10 bg-white rounded-md shadow-md">
-      <h1 className="text-3xl font-bold mb-4">MiCall Authentication API</h1>
-      {isLoggedIn ? (
-        <div>
-          <p className="text-lg font-bold mb-2">Welcome, {username}!</p>
-          <button
-            className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
-            onClick={handleLogout}
-          >
-            Logout
-          </button>
-        </div>
-      ) : (
-        <div>
-          <input
-            type="text"
-            placeholder="Username"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            className="block w-full p-2 mb-2 border border-gray-400 rounded"
-          />
-          <input
-            type="password"
-            placeholder="Password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="block w-full p-2 mb-4 border border-gray-400 rounded"
-          />
-          <button
-            className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded mr-2"
-            onClick={handleLogin}
-          >
-            Login
-          </button>
-          <button
-            className="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded"
-            onClick={handleSignUp}
-          >
-            Sign Up
-          </button>
-          {error && <p className="text-red-500 mt-2">{error}</p>}
-        </div>
-      )}
-    </div>
-  );
+  jwt.verify(token, JWT_SECRET, (err, user) => {
+    if (err) return res.status(403).json({ message: 'Invalid token!' });
+    req.user = user;
+    next();
+  });
 };
 
-export default AuthAPI;
+// Route for user registration (email/phone)
+router.post('/register', async (req, res) => {
+  const { username, email, password, phoneNumber } = req.body;
+
+  // Validate input
+  if (!username || (!email && !phoneNumber)) {
+    return res.status(400).json({ message: 'Username, email or phone number is required' });
+  }
+
+  // Check if user already exists (based on email/phone)
+  const userExists = users.find(user => user.username === username || user.email === email || user.phoneNumber === phoneNumber);
+  if (userExists) {
+    return res.status(400).json({ message: 'User already exists' });
+  }
+
+  // Hash the password
+  const hashedPassword = await bcrypt.hash(password, 10);
+
+  // Add user to the database (in-memory)
+  users.push({ username, email, phoneNumber, password: hashedPassword });
+
+  res.status(201).json({ message: 'User registered successfully' });
+});
+
+// Route for user login (email/username/phone)
+router.post('/login', async (req, res) => {
+  const { username, email, phoneNumber, password } = req.body;
+
+  // Find user in the database
+  const user = users.find(user => user.username === username || user.email === email || user.phoneNumber === phoneNumber);
+  if (!user) {
+    return res.status(400).json({ message: 'Invalid credentials' });
+  }
+
+  // Compare passwords
+  const validPassword = await bcrypt.compare(password, user.password);
+  if (!validPassword) {
+    return res.status(400).json({ message: 'Invalid credentials' });
+  }
+
+  // Generate JWT token
+  const token = jwt.sign({ username: user.username, email: user.email }, JWT_SECRET, { expiresIn: '1h' });
+
+  res.json({ message: 'Login successful', token });
+});
+
+// Route for wallet-based signup/login
+router.post('/wallet-auth', (req, res) => {
+  const { walletAddress } = req.body;
+
+  if (!walletAddress) {
+    return res.status(400).json({ message: 'Wallet address is required' });
+  }
+
+  // Check if wallet already exists
+  let user = users.find(user => user.walletAddress === walletAddress);
+
+  if (!user) {
+    // Create a new user with wallet address only (no password)
+    user = { walletAddress };
+    users.push(user);
+  }
+
+  // Generate JWT token for wallet user
+  const token = jwt.sign({ walletAddress }, JWT_SECRET, { expiresIn: '1h' });
+
+  res.json({ message: 'Wallet login successful', token });
+});
+
+// A protected route
+router.get('/protected', authenticateToken, (req, res) => {
+  res.json({ message: `Hello, ${req.user.username || req.user.walletAddress}. You are authorized!` });
+});
+
+module.exports = router;

@@ -1,0 +1,57 @@
+import React from 'react';
+import PropTypes from 'prop-types';
+
+// Shared Tailwind CSS classes
+const cardClasses = "flex items-start p-4 border border-border rounded-lg";
+const textMutedClasses = "text-muted-foreground";
+
+const EmergencyCard = React.memo(({ type, time, description }) => (
+  <div className={cardClasses}>
+    <img
+      aria-hidden="true"
+      alt={`${type} icon`}
+      src="https://openui.fly.dev/openui/24x24.svg?text=👤"
+      className="w-8 h-8 mr-3"
+    />
+    <div>
+      <h3 className="font-semibold text-primary">{type}</h3>
+      <p className={textMutedClasses}>{time}</p>
+      <p className={textMutedClasses}>{description}</p>
+    </div>
+  </div>
+));
+
+EmergencyCard.propTypes = {
+  type: PropTypes.string.isRequired,
+  time: PropTypes.string.isRequired,
+  description: PropTypes.string.isRequired,
+};
+
+const EmergencyHistory = () => {
+  const emergencies = [
+    { id: 1, type: "Fuel Emergency", time: "Monday at 7:45 AM", description: "Lorem ipsum dolor sit amet" },
+    { id: 2, type: "Fuel Emergency", time: "Monday at 7:45 AM", description: "Lorem ipsum dolor sit amet" },
+    { id: 3, type: "Medical Emergency", time: "Monday at 7:45 AM", description: "Lorem ipsum dolor sit amet" },
+    { id: 4, type: "Fuel Emergency", time: "Monday at 7:45 AM", description: "Lorem ipsum dolor sit amet" },
+    { id: 5, type: "Fuel Emergency", time: "Monday at 7:45 AM", description: "Lorem ipsum dolor sit amet" },
+  ];
+
+  return (
+    <div className="bg-background p-4">
+      <h1 className="text-2xl font-bold text-foreground">Your Emergency History</h1>
+      <h2 className="text-lg text-muted-foreground">MONDAY</h2>
+      <div className="space-y-4 mt-4">
+        {emergencies.map(({ id, type, time, description }) => (
+          <EmergencyCard
+            key={id} // Use unique id as key
+            type={type}
+            time={time}
+            description={description}
+          />
+        ))}
+      </div>
+    </div>
+  );
+};
+
+export default EmergencyHistory;

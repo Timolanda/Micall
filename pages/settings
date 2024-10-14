@@ -1,0 +1,99 @@
+import React, { useState } from 'react';
+import PropTypes from 'prop-types';
+
+// Shared Tailwind CSS class strings
+const sharedClasses = {
+  sectionTitle: "text-lg",
+  toggleContainer: "relative inline-flex items-center cursor-pointer",
+  toggleBackground: "w-10 h-6 bg-zinc-200 rounded-full shadow-inner",
+  toggleDot: "dot absolute w-4 h-4 bg-white rounded-full shadow transition",
+  flexBetween: "flex items-center justify-between mb-4",
+};
+
+const ToggleSwitch = ({ checked, onChange, label }) => (
+  <label className={sharedClasses.toggleContainer} aria-label={label}>
+    <input 
+      type="checkbox" 
+      className="sr-only" 
+      checked={checked} 
+      onChange={onChange} 
+    />
+    <div className={sharedClasses.toggleBackground}></div>
+    <div
+      className={sharedClasses.toggleDot}
+      style={{ transform: checked ? 'translateX(100%)' : 'translateX(0)' }}
+    ></div>
+  </label>
+);
+
+ToggleSwitch.propTypes = {
+  checked: PropTypes.bool.isRequired,
+  onChange: PropTypes.func.isRequired,
+  label: PropTypes.string.isRequired,
+};
+
+const SettingsItem = ({ title, description, checked, onChange }) => (
+  <div className={sharedClasses.flexBetween}>
+    <div>
+      <h2 className={sharedClasses.sectionTitle}>{title}</h2>
+      {description && <p className="text-muted-foreground">{description}</p>}
+    </div>
+    <ToggleSwitch 
+      checked={checked} 
+      onChange={onChange} 
+      label={title} 
+    />
+  </div>
+);
+
+SettingsItem.propTypes = {
+  title: PropTypes.string.isRequired,
+  description: PropTypes.string,
+  checked: PropTypes.bool.isRequired,
+  onChange: PropTypes.func.isRequired,
+};
+
+const Settings = () => {
+  const [settings, setSettings] = useState({
+    powerButtonReminder: true,
+    pushNotifications: false,
+    autoAudioVideo: false,
+  });
+
+  const handleToggle = (setting) => {
+    setSettings((prev) => ({
+      ...prev,
+      [setting]: !prev[setting],
+    }));
+  };
+
+  return (
+    <div className="bg-background text-foreground p-4">
+      <h1 className="text-xl font-bold mb-4">Settings</h1>
+      <SettingsItem
+        title="Power Button Activation Reminder"
+        description="Three-click emergency activation power button."
+        checked={settings.powerButtonReminder}
+        onChange={() => handleToggle('powerButtonReminder')}
+      />
+      <SettingsItem
+        title="Push Notifications"
+        checked={settings.pushNotifications}
+        onChange={() => handleToggle('pushNotifications')}
+      />
+      <SettingsItem
+        title="Enable Auto Audio & Video"
+        checked={settings.autoAudioVideo}
+        onChange={() => handleToggle('autoAudioVideo')}
+      />
+      <div className="mt-6">
+        <h2 className={sharedClasses.sectionTitle}>Help</h2>
+        <h2 className={sharedClasses.sectionTitle}>About Application</h2>
+        <h2 className={sharedClasses.sectionTitle}>Send Feedback</h2>
+        <h2 className={sharedClasses.sectionTitle}>Support</h2>
+      </div>
+    </div>
+  );
+};
+
+export default Settings;
