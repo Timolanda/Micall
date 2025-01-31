@@ -1,8 +1,11 @@
-const express = require('express');
-const app = require('./app');  // Import app.js
-const PORT = process.env.PORT || 3000;
+import React from "react";
+import ReactDOM from "react-dom/client";
+import App from "./App";
+import "./index.css"; // Optional: Your global styles
 
-// Start the server
-app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-});
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>
+);
