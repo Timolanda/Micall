@@ -1,0 +1,32 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "MiCall Dashboard",
+    "tags": ["micall"],
+    "timezone": "browser",
+    "panels": [
+      {
+        "title": "Active Users",
+        "type": "graph",
+        "datasource": "Prometheus",
+        "targets": [
+          {
+            "expr": "micall_active_users",
+            "legendFormat": "Users"
+          }
+        ]
+      },
+      {
+        "title": "Response Time",
+        "type": "graph",
+        "datasource": "Prometheus",
+        "targets": [
+          {
+            "expr": "rate(http_request_duration_seconds_sum[5m]) / rate(http_request_duration_seconds_count[5m])",
+            "legendFormat": "Average"
+          }
+        ]
+      }
+    ]
+  }
+} 
