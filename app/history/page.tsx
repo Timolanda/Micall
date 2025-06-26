@@ -1,3 +1,4 @@
+'use client';
 import { useState } from 'react';
 // TODO: Import Supabase hooks for fetching history data
 
