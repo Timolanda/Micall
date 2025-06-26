@@ -1,0 +1,26 @@
+app:
+  name: micall
+  version: 1.0.0
+  environment: production
+  domain: your-domain.com
+
+directories:
+  base: /opt/micall
+  ssl: ssl
+  logs: logs
+  data: data
+  monitoring: monitoring
+  backup: backup
+
+services:
+  - name: app
+    port: 3000
+    healthCheck: /health
+  - name: mongodb
+    port: 27017
+  - name: redis
+    port: 6379
+  - name: prometheus
+    port: 9090
+  - name: grafana
+    port: 3001
