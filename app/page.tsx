@@ -1,3 +1,4 @@
+'use client';
 import GoLiveButton from '../components/GoLiveButton';
 import SOSButton from '../components/SOSButton';
 import ResponderMap from '../components/ResponderMap';
