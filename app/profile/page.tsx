@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../../utils/supabaseClient';
 import Modal from '../../components/Modal';
+import { Pencil, Trash2, PlusCircle, Save, Camera } from 'lucide-react';
 
 interface Contact {
   id?: string;
@@ -17,16 +18,22 @@ export default function ProfilePage() {
   const [phone, setPhone] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [medicalInfo, setMedicalInfo] = useState('');
+  const [savingMedical, setSavingMedical] = useState(false);
+  const [profilePhoto, setProfilePhoto] = useState('/user-photo.png');
 
-  // Fetch contacts from Supabase
   useEffect(() => {
     const fetchContacts = async () => {
       setLoading(true);
-      const user = supabase.auth.getUser();
-      // Replace with actual user ID logic
-      const userId = (await user).data.user?.id;
+      const { data: userData } = await supabase.auth.getUser();
+      const userId = userData.user?.id;
       if (!userId) return setLoading(false);
-      const { data, error } = await supabase.from('contacts').select('*').eq('user_id', userId).limit(5);
+
+      const { data, error } = await supabase
+        .from('contacts')
+        .select('*')
+        .eq('user_id', userId)
+        .limit(5);
       if (!error && data) setContacts(data);
       setLoading(false);
     };
@@ -49,41 +56,56 @@ export default function ProfilePage() {
     setError(null);
   };
 
-  const validatePhone = (phone: string) => {
-    return /^\+?\d{10,15}$/.test(phone);
-  };
+  const validatePhone = (phone: string) => /^\+?\d{10,15}$/.test(phone);
 
   const handleSave = async () => {
     if (!name.trim() || !validatePhone(phone)) {
-      setError('Enter a valid name and phone number (10-15 digits, may start with +)');
+      setError('Valid name and phone (+1234567890) required');
       return;
     }
-    if (contacts.some(c => c.phone === phone && (!editingContact || c.id !== editingContact.id))) {
-      setError('This phone number is already in your contacts.');
+
+    if (
+      contacts.some(
+        (c) => c.phone === phone && (!editingContact || c.id !== editingContact.id)
+      )
+    ) {
+      setError('Phone number already exists');
       return;
     }
+
     setLoading(true);
-    const user = supabase.auth.getUser();
-    const userId = (await user).data.user?.id;
+    const { data: userData } = await supabase.auth.getUser();
+    const userId = userData.user?.id;
+
     if (!userId) {
-      setError('User not found.');
+      setError('User not found');
       setLoading(false);
       return;
     }
+
     if (editingContact) {
-      // Update contact
-      const { data, error } = await supabase.from('contacts').update({ name, phone }).eq('id', editingContact.id);
-      if (!error) setContacts(contacts.map(c => c.id === editingContact.id ? { ...c, name, phone } : c));
+      const { error } = await supabase
+        .from('contacts')
+        .update({ name, phone })
+        .eq('id', editingContact.id);
+      if (!error)
+        setContacts((prev) =>
+          prev.map((c) => (c.id === editingContact.id ? { ...c, name, phone } : c))
+        );
     } else {
-      // Add new contact
       if (contacts.length >= 5) {
-        setError('You can only have up to 5 emergency contacts.');
+        setError('Limit of 5 emergency contacts reached');
         setLoading(false);
         return;
       }
-      const { data, error } = await supabase.from('contacts').insert([{ name, phone, user_id: userId }]).select().single();
+      const { data, error } = await supabase
+        .from('contacts')
+        .insert([{ name, phone, user_id: userId }])
+        .select()
+        .single();
       if (!error && data) setContacts([...contacts, data]);
     }
+
     setLoading(false);
     closeModal();
   };
@@ -92,60 +114,169 @@ export default function ProfilePage() {
     if (!id) return;
     setLoading(true);
     const { error } = await supabase.from('contacts').delete().eq('id', id);
-    if (!error) setContacts(contacts.filter(c => c.id !== id));
+    if (!error) setContacts(contacts.filter((c) => c.id !== id));
     setLoading(false);
   };
 
+  const handleSaveMedicalInfo = async () => {
+    setSavingMedical(true);
+    const { data: userData } = await supabase.auth.getUser();
+    const userId = userData.user?.id;
+
+    if (userId) {
+      // Update user profile with medical info
+      const { error } = await supabase
+        .from('profiles')
+        .upsert({ 
+          id: userId, 
+          medical_info: medicalInfo 
+        });
+      
+      if (!error) {
+        // Show success feedback
+        setTimeout(() => setSavingMedical(false), 1000);
+      } else {
+        setSavingMedical(false);
+      }
+    } else {
+      setSavingMedical(false);
+    }
+  };
+
+  const handleChangePhoto = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.onchange = async (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (file) {
+        // Create a preview URL
+        const previewUrl = URL.createObjectURL(file);
+        setProfilePhoto(previewUrl);
+        
+        // TODO: Upload to Supabase Storage and update profile
+        // const { data, error } = await supabase.storage
+        //   .from('avatars')
+        //   .upload(`user-${userId}.jpg`, file);
+      }
+    };
+    input.click();
+  };
+
   return (
-    <div className="max-w-md mx-auto p-4 flex flex-col gap-6">
-      <div className="flex flex-col items-center gap-2">
-        <img src="/user-photo.png" alt="User Photo" className="w-24 h-24 rounded-full border-4 border-primary" />
-        <button className="mt-2 px-4 py-1 bg-primary text-white rounded">Change Photo</button>
-      </div>
-      <div className="bg-surface rounded-lg p-4">
-        <h2 className="text-lg font-bold mb-2">Emergency Contacts</h2>
-        <ul className="space-y-2">
-          {contacts.map((c, i) => (
-            <li key={c.id || i} className="flex justify-between items-center">
-              <span>{c.name}</span>
-              <span className="text-sm text-zinc-400">{c.phone}</span>
-              <div className="flex gap-2">
-                <button className="text-blue-500" onClick={() => openModal(c)}>Edit</button>
-                <button className="text-red-500" onClick={() => handleDelete(c.id)}>Delete</button>
-              </div>
-            </li>
-          ))}
-        </ul>
-        <button className="mt-3 w-full bg-primary text-white py-2 rounded" onClick={() => openModal()} disabled={contacts.length >= 5}>Add Contact</button>
-      </div>
-      <div className="bg-surface rounded-lg p-4">
-        <h2 className="text-lg font-bold mb-2">Medical Info</h2>
-        <textarea className="w-full bg-zinc-800 text-accent rounded p-2" rows={3} placeholder="Allergies, conditions, etc." />
-      </div>
-      {showModal && (
-        <Modal>
-          <div className="flex flex-col gap-4">
-            <h3 className="text-lg font-bold mb-2">{editingContact ? 'Edit' : 'Add'} Contact</h3>
-            <input
-              className="bg-zinc-800 text-accent rounded p-2"
-              placeholder="Name"
-              value={name}
-              onChange={e => setName(e.target.value)}
-            />
-            <input
-              className="bg-zinc-800 text-accent rounded p-2"
-              placeholder="Phone (+1234567890)"
-              value={phone}
-              onChange={e => setPhone(e.target.value)}
-            />
-            {error && <div className="text-red-500 text-sm">{error}</div>}
-            <div className="flex gap-2 justify-end">
-              <button className="px-4 py-1 bg-zinc-700 text-white rounded" onClick={closeModal}>Cancel</button>
-              <button className="px-4 py-1 bg-primary text-white rounded" onClick={handleSave} disabled={loading}>{editingContact ? 'Save' : 'Add'}</button>
-            </div>
+    <div className="min-h-screen bg-black text-white overflow-y-auto">
+      <div className="max-w-4xl mx-auto p-4 pt-8 pb-20">
+        {/* Header */}
+        <div className="mb-6 text-center">
+          <h1 className="text-3xl font-bold mb-2">Profile</h1>
+          <p className="text-zinc-400">Manage your emergency contacts and information</p>
+        </div>
+
+        {/* Profile Photo */}
+        <div className="flex flex-col items-center gap-4 mb-6">
+          <img
+            src={profilePhoto}
+            alt="User"
+            className="w-32 h-32 rounded-full border-4 border-primary hover:scale-105 transition-all object-cover"
+          />
+          <button 
+            onClick={handleChangePhoto}
+            className="text-sm px-6 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition flex items-center gap-2"
+          >
+            <Camera size={16} /> Change Photo
+          </button>
+        </div>
+
+        {/* Emergency Contacts */}
+        <div className="bg-zinc-900 rounded-xl p-6 shadow-inner mb-6">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-xl font-semibold">Emergency Contacts</h2>
+            <button
+              className="flex items-center gap-2 text-primary text-sm font-medium disabled:opacity-50 px-3 py-1 rounded-lg hover:bg-primary/10"
+              onClick={() => openModal()}
+              disabled={contacts.length >= 5}
+            >
+              <PlusCircle size={18} /> Add Contact
+            </button>
           </div>
-        </Modal>
-      )}
+          <div className="grid gap-4">
+            {contacts.map((c) => (
+              <div key={c.id} className="bg-zinc-800 p-4 rounded-lg flex justify-between items-center shadow-sm">
+                <div>
+                  <p className="font-medium text-lg">{c.name}</p>
+                  <p className="text-sm text-zinc-400">{c.phone}</p>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => openModal(c)} className="text-blue-400 hover:text-blue-300 p-2 rounded-lg hover:bg-blue-400/10">
+                    <Pencil size={18} />
+                  </button>
+                  <button onClick={() => handleDelete(c.id)} className="text-red-500 hover:text-red-400 p-2 rounded-lg hover:bg-red-500/10">
+                    <Trash2 size={18} />
+                  </button>
+                </div>
+              </div>
+            ))}
+            {contacts.length === 0 && (
+              <div className="text-center py-8 text-zinc-500">
+                <p>No emergency contacts added yet</p>
+                <p className="text-sm">Add up to 5 contacts for emergency situations</p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Medical Info */}
+        <div className="bg-zinc-900 rounded-xl p-6 shadow-inner">
+          <h2 className="text-xl font-semibold mb-4">Medical Information</h2>
+          <textarea
+            className="w-full bg-zinc-800 text-white rounded-lg p-4 resize-none mb-4"
+            rows={4}
+            placeholder="E.g., diabetic, allergic to penicillin, blood type, medications..."
+            value={medicalInfo}
+            onChange={(e) => setMedicalInfo(e.target.value)}
+          />
+          <button
+            onClick={handleSaveMedicalInfo}
+            disabled={savingMedical}
+            className="flex items-center gap-2 px-6 py-3 bg-primary text-white rounded-lg hover:bg-primary/90 transition disabled:opacity-50"
+          >
+            <Save size={16} />
+            {savingMedical ? 'Saving...' : 'Save Medical Info'}
+          </button>
+        </div>
+
+        {/* Modal */}
+        {showModal && (
+          <Modal onClose={closeModal}>
+            <div className="bg-zinc-900 p-6 rounded-xl w-full max-w-md space-y-4">
+              <h3 className="text-xl font-bold">{editingContact ? 'Edit' : 'Add'} Contact</h3>
+              <input
+                className="w-full bg-zinc-800 text-white rounded-lg p-3"
+                placeholder="Full Name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+              />
+              <input
+                className="w-full bg-zinc-800 text-white rounded-lg p-3"
+                placeholder="Phone (+1234567890)"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+              />
+              {error && <p className="text-red-500 text-sm">{error}</p>}
+              <div className="flex justify-end gap-3">
+                <button className="px-4 py-2 bg-zinc-700 text-white rounded-lg hover:bg-zinc-600" onClick={closeModal}>Cancel</button>
+                <button
+                  className="px-4 py-2 bg-primary text-white rounded-lg disabled:opacity-50 hover:bg-primary/90"
+                  onClick={handleSave}
+                  disabled={loading}
+                >
+                  {editingContact ? 'Save Changes' : 'Add Contact'}
+                </button>
+              </div>
+            </div>
+          </Modal>
+        )}
+      </div>
     </div>
   );
 } 

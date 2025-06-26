@@ -1,8 +1,9 @@
 import Link from 'next/link';
-import { FaHome, FaUser, FaCog } from 'react-icons/fa';
+import { FaHome, FaUser, FaCog, FaShieldAlt } from 'react-icons/fa';
 
 const navItems = [
   { href: '/', label: 'Home', icon: <FaHome /> },
+  { href: '/live', label: 'Respond', icon: <FaShieldAlt /> },
   { href: '/profile', label: 'Profile', icon: <FaUser /> },
   { href: '/settings', label: 'Settings', icon: <FaCog /> },
 ];

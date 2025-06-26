@@ -1,5 +1,7 @@
+'use client';
 import { useState, useRef } from 'react';
 import { supabase } from '../utils/supabaseClient';
+import { VideoIcon, UploadCloud, Loader2 } from 'lucide-react';
 
 export default function GoLiveButton({ onStart }: { onStart: () => void }) {
   const [countdown, setCountdown] = useState<number | null>(null);
@@ -14,6 +16,7 @@ export default function GoLiveButton({ onStart }: { onStart: () => void }) {
     setCountdown(3);
     setErrorMsg(null);
     setSuccessMsg(null);
+
     const interval = setInterval(() => {
       setCountdown((c) => {
         if (c === 1) {
@@ -28,69 +31,85 @@ export default function GoLiveButton({ onStart }: { onStart: () => void }) {
   };
 
   const startRecording = async () => {
+    onStart?.();
     setRecording(true);
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      setErrorMsg('Camera not supported');
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      mediaRecorderRef.current = new MediaRecorder(stream);
+      videoChunks.current = [];
+
+      mediaRecorderRef.current.ondataavailable = (e) => {
+        if (e.data.size > 0) videoChunks.current.push(e.data);
+      };
+
+      mediaRecorderRef.current.onstop = async () => {
+        setUploading(true);
+        const blob = new Blob(videoChunks.current, { type: 'video/webm' });
+        const file = new File([blob], `live-${Date.now()}.webm`, { type: 'video/webm' });
+
+        const { data, error } = await supabase.storage.from('videos').upload(file.name, file);
+        setRecording(false);
+        setUploading(false);
+
+        if (error) {
+          setErrorMsg(`Upload failed: ${error.message}\n\nEnsure a Supabase bucket named "videos" with public upload access exists.`);
+          return;
+        }
+
+        await supabase.from('emergency_alerts').insert({
+          type: 'video',
+          video_url: data?.path,
+          created_at: new Date().toISOString(),
+        });
+
+        setSuccessMsg('Live video uploaded and emergency contacts notified!');
+      };
+
+      mediaRecorderRef.current.start();
+
+      setTimeout(() => {
+        mediaRecorderRef.current?.stop();
+        stream.getTracks().forEach((track) => track.stop());
+      }, 10000);
+    } catch (err) {
       setRecording(false);
-      return;
+      setErrorMsg('Unable to access camera/mic. Please check permissions.');
     }
-    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-    mediaRecorderRef.current = new MediaRecorder(stream);
-    videoChunks.current = [];
-    mediaRecorderRef.current.ondataavailable = (e) => {
-      if (e.data.size > 0) videoChunks.current.push(e.data);
-    };
-    mediaRecorderRef.current.onstop = async () => {
-      setUploading(true);
-      setErrorMsg(null);
-      setSuccessMsg(null);
-      const blob = new Blob(videoChunks.current, { type: 'video/webm' });
-      const file = new File([blob], `live-${Date.now()}.webm`, { type: 'video/webm' });
-      // Upload to Supabase Storage
-      const { data, error } = await supabase.storage.from('videos').upload(file.name, file);
-      setUploading(false);
-      setRecording(false);
-      if (error) {
-        setErrorMsg('Upload failed: ' + error.message + '\n\nMake sure you have a Supabase Storage bucket named "videos" and that your policy allows uploads.');
-        /*
-        // Supabase SQL to create the bucket and allow authenticated uploads:
-        -- In Supabase Storage UI, create a bucket named 'videos'.
-        -- Then run this policy:
-        insert into storage.buckets (id, name, public) values ('videos', 'videos', false);
-        -- Policy example (SQL):
-        create policy "Allow authenticated upload to videos" on storage.objects
-          for insert using (bucket_id = 'videos' and auth.role() = 'authenticated');
-        */
-        return;
-      }
-      // Notify contacts (placeholder)
-      await supabase.from('emergency_alerts').insert({
-        type: 'video',
-        video_url: data?.path,
-        created_at: new Date().toISOString(),
-        // Add user/location info as needed
-      });
-      setSuccessMsg('Video uploaded and contacts notified!');
-    };
-    mediaRecorderRef.current.start();
-    setTimeout(() => {
-      mediaRecorderRef.current?.stop();
-      stream.getTracks().forEach((track) => track.stop());
-    }, 10000); // Record for 10 seconds (adjust as needed)
   };
 
   return (
-    <div className="flex flex-col items-center gap-2">
+    <div className="flex flex-col items-center gap-3">
       <button
-        className="w-32 h-32 rounded-full bg-danger shadow-lg flex items-center justify-center text-white text-2xl animate-pulse-glow border-4 border-danger focus:outline-none focus:ring-4 focus:ring-danger/50"
         onClick={handleClick}
-        aria-label="Go Live"
         disabled={recording || uploading}
+        aria-label="Go Live"
+        className={`
+          w-32 h-32 rounded-full text-white flex items-center justify-center text-xl font-bold border-4 transition-all duration-300 
+          ${countdown !== null ? 'bg-orange-500 border-orange-500' : ''}
+          ${recording ? 'bg-red-600 border-red-600 animate-pulse' : ''}
+          ${uploading ? 'bg-blue-600 border-blue-600 animate-pulse' : ''}
+          ${!recording && countdown === null && !uploading ? 'bg-primary border-primary hover:bg-primary/80' : ''}
+          focus:outline-none focus:ring-4 focus:ring-primary/50
+        `}
       >
-        {countdown !== null ? countdown : recording ? (uploading ? 'Uploading...' : 'Recording...') : 'Go Live'}
+        {countdown !== null ? (
+          <span className="text-4xl animate-bounce">{countdown}</span>
+        ) : recording ? (
+          <VideoIcon className="animate-ping" size={28} />
+        ) : uploading ? (
+          <UploadCloud className="animate-spin" size={28} />
+        ) : (
+          'Go Live'
+        )}
       </button>
-      {errorMsg && <div className="text-red-500 text-sm text-center whitespace-pre-line">{errorMsg}</div>}
-      {successMsg && <div className="text-green-500 text-sm text-center">{successMsg}</div>}
+
+      {errorMsg && (
+        <div className="text-red-500 text-center text-sm whitespace-pre-line">{errorMsg}</div>
+      )}
+      {successMsg && (
+        <div className="text-green-500 text-center text-sm">{successMsg}</div>
+      )}
     </div>
   );
 } 

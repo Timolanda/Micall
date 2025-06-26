@@ -1,50 +1,187 @@
 'use client';
+
 import { useState } from 'react';
+import { supabase } from '../../utils/supabaseClient';
+import { 
+  Bell, 
+  MapPin, 
+  Moon, 
+  LogOut, 
+  Shield, 
+  HelpCircle, 
+  Settings as SettingsIcon,
+  ToggleLeft,
+  ToggleRight
+} from 'lucide-react';
 
 export default function SettingsPage() {
-  const [dark, setDark] = useState(true);
   const [notifications, setNotifications] = useState(true);
   const [locationSharing, setLocationSharing] = useState(true);
+  const [darkMode, setDarkMode] = useState(true);
+  const [loading, setLoading] = useState(false);
 
-  const handleToggleDark = () => {
-    setDark((d) => !d);
-    document.documentElement.classList.toggle('dark');
+  const handleLogout = async () => {
+    setLoading(true);
+    try {
+      await supabase.auth.signOut();
+      window.location.href = '/';
+    } catch (error) {
+      console.error('Logout error:', error);
+    } finally {
+      setLoading(false);
+    }
   };
-  const handleToggleNotifications = () => setNotifications((n) => !n);
-  const handleToggleLocation = () => setLocationSharing((l) => !l);
 
-  const handleLogout = () => {
-    // Add logout logic (e.g., supabase.auth.signOut())
-    alert('Logged out!');
-  };
+  const settingsItems = [
+    {
+      icon: <Bell size={20} />,
+      title: 'Push Notifications',
+      description: 'Receive emergency alerts and updates',
+      action: (
+        <button
+          onClick={() => setNotifications(!notifications)}
+          className="flex items-center"
+        >
+          {notifications ? (
+            <ToggleRight size={24} className="text-primary" />
+          ) : (
+            <ToggleLeft size={24} className="text-zinc-600" />
+          )}
+        </button>
+      )
+    },
+    {
+      icon: <MapPin size={20} />,
+      title: 'Location Sharing',
+      description: 'Share your location with emergency responders',
+      action: (
+        <button
+          onClick={() => setLocationSharing(!locationSharing)}
+          className="flex items-center"
+        >
+          {locationSharing ? (
+            <ToggleRight size={24} className="text-primary" />
+          ) : (
+            <ToggleLeft size={24} className="text-zinc-600" />
+          )}
+        </button>
+      )
+    },
+    {
+      icon: <Moon size={20} />,
+      title: 'Dark Mode',
+      description: 'Use dark theme for better visibility',
+      action: (
+        <button
+          onClick={() => setDarkMode(!darkMode)}
+          className="flex items-center"
+        >
+          {darkMode ? (
+            <ToggleRight size={24} className="text-primary" />
+          ) : (
+            <ToggleLeft size={24} className="text-zinc-600" />
+          )}
+        </button>
+      )
+    }
+  ];
+
+  const actionItems = [
+    {
+      icon: <Shield size={20} />,
+      title: 'Privacy Policy',
+      description: 'Read our privacy policy',
+      action: () => window.open('/privacy', '_blank')
+    },
+    {
+      icon: <HelpCircle size={20} />,
+      title: 'Help & Support',
+      description: 'Get help and contact support',
+      action: () => window.open('/help', '_blank')
+    },
+    {
+      icon: <LogOut size={20} />,
+      title: 'Sign Out',
+      description: 'Sign out of your account',
+      action: handleLogout,
+      danger: true
+    }
+  ];
 
   return (
-    <div className="max-w-md mx-auto p-4 flex flex-col gap-6">
-      <div className="bg-surface rounded-lg p-4 flex items-center justify-between">
-        <span className="font-bold">Dark Mode</span>
-        <button onClick={handleToggleDark} className="bg-zinc-700 text-white px-3 py-1 rounded">
-          {dark ? 'On' : 'Off'}
-        </button>
-      </div>
-      <div className="bg-surface rounded-lg p-4 flex items-center justify-between">
-        <span className="font-bold">Notifications</span>
-        <button onClick={handleToggleNotifications} className="bg-zinc-700 text-white px-3 py-1 rounded">
-          {notifications ? 'On' : 'Off'}
-        </button>
-      </div>
-      <div className="bg-surface rounded-lg p-4 flex items-center justify-between">
-        <span className="font-bold">Location Sharing</span>
-        <button onClick={handleToggleLocation} className="bg-zinc-700 text-white px-3 py-1 rounded">
-          {locationSharing ? 'On' : 'Off'}
-        </button>
-      </div>
-      <div className="bg-surface rounded-lg p-4 flex items-center justify-between">
-        <span className="font-bold">Account</span>
-        <button onClick={handleLogout} className="bg-danger text-white px-3 py-1 rounded">Logout</button>
-      </div>
-      <div className="bg-surface rounded-lg p-4 flex flex-col gap-2">
-        <a href="/privacy" className="text-accent underline">Privacy Policy</a>
-        <a href="/help" className="text-accent underline">Help & Support</a>
+    <div className="min-h-screen bg-black text-white p-4">
+      <div className="max-w-4xl mx-auto">
+        {/* Header */}
+        <div className="mb-8 text-center">
+          <h1 className="text-3xl font-bold mb-2">Settings</h1>
+          <p className="text-zinc-400">Customize your emergency response experience</p>
+        </div>
+
+        {/* Settings Icon */}
+        <div className="flex justify-center mb-8">
+          <div className="bg-zinc-900 rounded-full p-6 shadow-lg border border-zinc-700">
+            <SettingsIcon size={32} className="text-primary" />
+          </div>
+        </div>
+
+        {/* App Settings */}
+        <div className="bg-zinc-900 rounded-xl p-6 shadow-inner mb-8">
+          <h2 className="text-xl font-semibold mb-6">App Settings</h2>
+          <div className="space-y-6">
+            {settingsItems.map((item, index) => (
+              <div key={index} className="flex items-center justify-between p-4 bg-zinc-800 rounded-lg">
+                <div className="flex items-center gap-4">
+                  <div className="text-primary">{item.icon}</div>
+                  <div>
+                    <h3 className="font-medium text-lg">{item.title}</h3>
+                    <p className="text-sm text-zinc-400">{item.description}</p>
+                  </div>
+                </div>
+                {item.action}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Account Actions */}
+        <div className="bg-zinc-900 rounded-xl p-6 shadow-inner">
+          <h2 className="text-xl font-semibold mb-6">Account</h2>
+          <div className="space-y-4">
+            {actionItems.map((item, index) => (
+              <button
+                key={index}
+                onClick={item.action}
+                disabled={loading && item.title === 'Sign Out'}
+                className={`w-full flex items-center justify-between p-4 bg-zinc-800 rounded-lg hover:bg-zinc-700 transition-colors ${
+                  item.danger ? 'hover:bg-red-900/20' : ''
+                } ${loading && item.title === 'Sign Out' ? 'opacity-50' : ''}`}
+              >
+                <div className="flex items-center gap-4">
+                  <div className={item.danger ? 'text-red-400' : 'text-primary'}>
+                    {item.icon}
+                  </div>
+                  <div className="text-left">
+                    <h3 className={`font-medium text-lg ${item.danger ? 'text-red-400' : ''}`}>
+                      {item.title}
+                    </h3>
+                    <p className="text-sm text-zinc-400">{item.description}</p>
+                  </div>
+                </div>
+                {loading && item.title === 'Sign Out' ? (
+                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                ) : (
+                  <div className="text-zinc-400">→</div>
+                )}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* App Version */}
+        <div className="text-center mt-8 text-zinc-500 text-sm">
+          <p>MiCall Emergency Response</p>
+          <p>Version 1.0.0</p>
+        </div>
       </div>
     </div>
   );
