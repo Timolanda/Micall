@@ -1,3 +1,4 @@
 node_modules/
 .env.local bfg.jar
 .next/
+bfg.jar
