@@ -1,7 +1,9 @@
 'use client';
 import { useState, useRef } from 'react';
 import { supabase } from '../utils/supabaseClient';
-import { VideoIcon, UploadCloud, Loader2 } from 'lucide-react';
+import { VideoIcon, UploadCloud, Loader2, Square } from 'lucide-react';
+import { useAuth } from '../hooks/useAuth';
+import { useProfile } from '../hooks/useProfile';
 
 export default function GoLiveButton({ onStart }: { onStart: () => void }) {
   const [countdown, setCountdown] = useState<number | null>(null);
@@ -9,20 +11,44 @@ export default function GoLiveButton({ onStart }: { onStart: () => void }) {
   const [uploading, setUploading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [alertId, setAlertId] = useState<number | null>(null);
+  const [isStopping, setIsStopping] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const videoChunks = useRef<Blob[]>([]);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const stopTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Get user info
+  const { user } = useAuth();
+  const { profile } = useProfile(user?.id || null);
+
+  // Get user location
+  const getLocation = async (): Promise<{ lat: number; lng: number } | null> => {
+    return new Promise((resolve) => {
+      if (!navigator.geolocation) return resolve(null);
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        },
+        () => resolve(null),
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
+      );
+    });
+  };
 
   const handleClick = async () => {
     setCountdown(3);
     setErrorMsg(null);
     setSuccessMsg(null);
+    setAlertId(null);
 
     const interval = setInterval(() => {
       setCountdown((c) => {
         if (c === 1) {
           clearInterval(interval);
           setCountdown(null);
-          startRecording();
+          startWorkflow();
           return null;
         }
         return c! - 1;
@@ -30,12 +56,44 @@ export default function GoLiveButton({ onStart }: { onStart: () => void }) {
     }, 1000);
   };
 
-  const startRecording = async () => {
+  // Full workflow: alert, then record
+  const startWorkflow = async () => {
     onStart?.();
     setRecording(true);
+    setIsStopping(false);
 
+    // 1. Get location
+    const location = await getLocation();
+
+    // 2. Create emergency alert immediately
+    let alertIdCreated: number | null = null;
+    if (user?.id) {
+      const { data, error } = await supabase.from('emergency_alerts').insert({
+        user_id: user.id,
+        type: 'video',
+        status: 'active',
+        lat: location?.lat,
+        lng: location?.lng,
+        message: `Live video started by ${profile?.name || 'user'}`,
+        created_at: new Date().toISOString(),
+      }).select('id').single();
+      if (error) {
+        setErrorMsg('Failed to create emergency alert: ' + error.message);
+        setRecording(false);
+        return;
+      }
+      alertIdCreated = data?.id;
+      setAlertId(alertIdCreated);
+    }
+
+    // 3. Start camera and recording
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.play();
+      }
       mediaRecorderRef.current = new MediaRecorder(stream);
       videoChunks.current = [];
 
@@ -45,8 +103,18 @@ export default function GoLiveButton({ onStart }: { onStart: () => void }) {
 
       mediaRecorderRef.current.onstop = async () => {
         setUploading(true);
+        setIsStopping(false);
         const blob = new Blob(videoChunks.current, { type: 'video/webm' });
         const file = new File([blob], `live-${Date.now()}.webm`, { type: 'video/webm' });
+
+        // Stop the video preview and release the camera
+        if (videoRef.current) {
+          videoRef.current.srcObject = null;
+        }
+        if (streamRef.current) {
+          streamRef.current.getTracks().forEach((track) => track.stop());
+          streamRef.current = null;
+        }
 
         try {
           const { data, error } = await supabase.storage.from('videos').upload(file.name, file);
@@ -54,45 +122,51 @@ export default function GoLiveButton({ onStart }: { onStart: () => void }) {
           setUploading(false);
 
           if (error) {
-            if (error.message.includes('Bucket not found')) {
-              setErrorMsg(`Upload failed: Bucket not found\n\nTo fix this:\n1. Go to Supabase Dashboard > Storage\n2. Create a bucket named "videos"\n3. Set it as public\n4. Add storage policies for authenticated users`);
-            } else if (error.message.includes('permission')) {
-              setErrorMsg(`Upload failed: Permission denied\n\nCheck your Supabase storage policies:\n- Allow authenticated users to upload to videos bucket\n- Allow authenticated users to read from videos bucket`);
-            } else {
-              setErrorMsg(`Upload failed: ${error.message}\n\nPlease check your Supabase configuration.`);
-            }
+            setErrorMsg('Upload failed: ' + error.message);
             return;
           }
 
-          // Create emergency alert with video URL
-          const { error: alertError } = await supabase.from('emergency_alerts').insert({
-            type: 'video',
-            video_url: data?.path,
-            created_at: new Date().toISOString(),
-          });
-
-          if (alertError) {
-            setErrorMsg(`Video uploaded but failed to create alert: ${alertError.message}`);
-            return;
+          // 4. Update emergency alert with video URL
+          if (alertIdCreated) {
+            const { error: updateError } = await supabase.from('emergency_alerts').update({
+              video_url: data?.path,
+              status: 'video_uploaded',
+            }).eq('id', alertIdCreated);
+            if (updateError) {
+              setErrorMsg('Video uploaded but failed to update alert: ' + updateError.message);
+              return;
+            }
           }
 
           setSuccessMsg('Live video uploaded and emergency contacts notified!');
         } catch (err: any) {
           setRecording(false);
           setUploading(false);
-          setErrorMsg(`Unexpected error: ${err.message || 'Unknown error occurred'}`);
+          setErrorMsg('Unexpected error: ' + (err.message || 'Unknown error occurred'));
         }
       };
 
       mediaRecorderRef.current.start();
 
-      setTimeout(() => {
-        mediaRecorderRef.current?.stop();
-        stream.getTracks().forEach((track) => track.stop());
+      // Set a max recording timeout (e.g., 10s)
+      stopTimeoutRef.current = setTimeout(() => {
+        stopRecording();
       }, 10000);
     } catch (err) {
       setRecording(false);
       setErrorMsg('Unable to access camera/mic. Please check permissions.');
+    }
+  };
+
+  // Stop recording handler
+  const stopRecording = () => {
+    setIsStopping(true);
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      mediaRecorderRef.current.stop();
+    }
+    if (stopTimeoutRef.current) {
+      clearTimeout(stopTimeoutRef.current);
+      stopTimeoutRef.current = null;
     }
   };
 
@@ -121,6 +195,27 @@ export default function GoLiveButton({ onStart }: { onStart: () => void }) {
           'Go Live'
         )}
       </button>
+
+      {/* Camera preview while recording */}
+      {recording && (
+        <>
+          <video
+            ref={videoRef}
+            autoPlay
+            muted
+            playsInline
+            className="w-64 h-40 rounded-lg border-2 border-primary shadow-lg mt-2 object-cover"
+            style={{ background: '#222' }}
+          />
+          <button
+            onClick={stopRecording}
+            disabled={isStopping || uploading}
+            className="mt-3 px-6 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-semibold flex items-center gap-2 shadow-lg disabled:opacity-60"
+          >
+            <Square size={18} /> Stop Recording
+          </button>
+        </>
+      )}
 
       {errorMsg && (
         <div className="text-red-500 text-center text-sm whitespace-pre-line">{errorMsg}</div>
