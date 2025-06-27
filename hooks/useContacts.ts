@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../utils/supabaseClient';
+import type { Contact } from '../types';
 
 export function useContacts(userId: string | null) {
-  const [contacts, setContacts] = useState<any[]>([]);
+  const [contacts, setContacts] = useState<Contact[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -22,9 +23,11 @@ export function useContacts(userId: string | null) {
 
   const addContact = async (contact: any) => {
     setLoading(true);
-    const { data, error } = await supabase.from('contacts').insert([contact]);
+    const { data, error } = await supabase
+      .from('contacts')
+      .insert([contact]) as { data: Contact[] | null, error: any };
     setLoading(false);
-    if (!error) setContacts((prev) => [...prev, data[0]]);
+    if (!error && Array.isArray(data) && data.length > 0) setContacts((prev) => [...prev, data[0]]);
     return { data, error };
   };
 
