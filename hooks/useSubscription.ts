@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../utils/supabaseClient';
+import type { Subscription } from '../types';
 
 export function useSubscription(userId: string | null) {
-  const [subscription, setSubscription] = useState<any>(null);
+  const [subscription, setSubscription] = useState<Subscription | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -15,7 +16,7 @@ export function useSubscription(userId: string | null) {
       .eq('user_id', userId)
       .single()
       .then(({ data, error }) => {
-        setSubscription(data);
+        setSubscription(data ? (data as Subscription) : null);
         setError(error ? error.message : null);
         setLoading(false);
       });

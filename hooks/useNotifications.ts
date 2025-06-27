@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../utils/supabaseClient';
+import type { DbEmergencyAlert } from '../types';
 
 export function useNotifications(userId: string | null, userLocation: [number, number] | null) {
-  const [notifications, setNotifications] = useState<any[]>([]);
+  const [notifications, setNotifications] = useState<DbEmergencyAlert[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -14,7 +15,7 @@ export function useNotifications(userId: string | null, userLocation: [number, n
       .select('*')
       .order('created_at', { ascending: false })
       .then(({ data, error }) => {
-        setNotifications(data || []);
+        setNotifications((data || []) as DbEmergencyAlert[]);
         setError(error ? error.message : null);
         setLoading(false);
       });
@@ -23,7 +24,7 @@ export function useNotifications(userId: string | null, userLocation: [number, n
       .channel('emergency_alerts')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'emergency_alerts' }, (payload) => {
         // Only notify if within 1km radius (implement distance check as needed)
-        setNotifications((prev) => [payload.new, ...prev]);
+        setNotifications((prev) => [payload.new as DbEmergencyAlert, ...prev]);
       })
       .subscribe();
     return () => {

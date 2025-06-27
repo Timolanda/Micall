@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../utils/supabaseClient';
-
-type Responder = { id: string } & { [key: string]: any };
+import type { Responder } from '../types';
 
 export function useResponders() {
   const [responders, setResponders] = useState<Responder[]>([]);
@@ -14,7 +13,7 @@ export function useResponders() {
       .from('responders')
       .select('*')
       .then(({ data, error }) => {
-        setResponders(data || []);
+        setResponders((data || []) as Responder[]);
         setError(error ? error.message : null);
         setLoading(false);
       });
@@ -23,13 +22,14 @@ export function useResponders() {
       .channel('responders')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'responders' }, (payload) => {
         setResponders((prev) => {
-          const idx = prev.findIndex((r) => r.id === payload.new.id);
+          const newResponder = payload.new as Responder;
+          const idx = prev.findIndex((r) => r.id === newResponder.id);
           if (idx !== -1) {
             const updated = [...prev];
-            updated[idx] = payload.new;
+            updated[idx] = newResponder;
             return updated;
           }
-          return [payload.new, ...prev];
+          return [newResponder, ...prev];
         });
       })
       .subscribe();

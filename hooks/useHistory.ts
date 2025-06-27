@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../utils/supabaseClient';
+import type { DbEmergencyAlert } from '../types';
 
 export function useHistory(userId: string | null) {
-  const [history, setHistory] = useState<any[]>([]);
+  const [history, setHistory] = useState<DbEmergencyAlert[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -15,7 +16,7 @@ export function useHistory(userId: string | null) {
       .eq('user_id', userId)
       .order('created_at', { ascending: false })
       .then(({ data, error }) => {
-        setHistory(data || []);
+        setHistory((data || []) as DbEmergencyAlert[]);
         setError(error ? error.message : null);
         setLoading(false);
       });
