@@ -48,22 +48,40 @@ export default function GoLiveButton({ onStart }: { onStart: () => void }) {
         const blob = new Blob(videoChunks.current, { type: 'video/webm' });
         const file = new File([blob], `live-${Date.now()}.webm`, { type: 'video/webm' });
 
-        const { data, error } = await supabase.storage.from('videos').upload(file.name, file);
-        setRecording(false);
-        setUploading(false);
+        try {
+          const { data, error } = await supabase.storage.from('videos').upload(file.name, file);
+          setRecording(false);
+          setUploading(false);
 
-        if (error) {
-          setErrorMsg(`Upload failed: ${error.message}\n\nEnsure a Supabase bucket named "videos" with public upload access exists.`);
-          return;
+          if (error) {
+            if (error.message.includes('Bucket not found')) {
+              setErrorMsg(`Upload failed: Bucket not found\n\nTo fix this:\n1. Go to Supabase Dashboard > Storage\n2. Create a bucket named "videos"\n3. Set it as public\n4. Add storage policies for authenticated users`);
+            } else if (error.message.includes('permission')) {
+              setErrorMsg(`Upload failed: Permission denied\n\nCheck your Supabase storage policies:\n- Allow authenticated users to upload to videos bucket\n- Allow authenticated users to read from videos bucket`);
+            } else {
+              setErrorMsg(`Upload failed: ${error.message}\n\nPlease check your Supabase configuration.`);
+            }
+            return;
+          }
+
+          // Create emergency alert with video URL
+          const { error: alertError } = await supabase.from('emergency_alerts').insert({
+            type: 'video',
+            video_url: data?.path,
+            created_at: new Date().toISOString(),
+          });
+
+          if (alertError) {
+            setErrorMsg(`Video uploaded but failed to create alert: ${alertError.message}`);
+            return;
+          }
+
+          setSuccessMsg('Live video uploaded and emergency contacts notified!');
+        } catch (err: any) {
+          setRecording(false);
+          setUploading(false);
+          setErrorMsg(`Unexpected error: ${err.message || 'Unknown error occurred'}`);
         }
-
-        await supabase.from('emergency_alerts').insert({
-          type: 'video',
-          video_url: data?.path,
-          created_at: new Date().toISOString(),
-        });
-
-        setSuccessMsg('Live video uploaded and emergency contacts notified!');
       };
 
       mediaRecorderRef.current.start();

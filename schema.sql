@@ -197,10 +197,11 @@ values ('videos', 'videos', false)
 on conflict (id) do nothing;
 
 create policy "Allow authenticated upload to videos" on storage.objects
-  for insert using (bucket_id = 'videos' and auth.role() = 'authenticated');
+  for insert with check (bucket_id = 'videos' and auth.role() = 'authenticated');
 
 create policy "Allow authenticated read from videos" on storage.objects
   for select using (bucket_id = 'videos' and auth.role() = 'authenticated');
 
 create policy "Allow authenticated delete from videos" on storage.objects
   for delete using (bucket_id = 'videos' and auth.role() = 'authenticated');
+
