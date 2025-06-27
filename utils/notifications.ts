@@ -1,5 +1,4 @@
 import { env } from '../config/environment';
-import logger from './logger';
 
 interface NotificationMessage {
   to: string;
@@ -9,7 +8,7 @@ interface NotificationMessage {
 
 export async function sendNotification(message: NotificationMessage): Promise<void> {
   // TODO: Implement actual email/notification service (SendGrid, AWS SES, etc.)
-  logger.info('Sending notification:', message);
+  console.log('Sending notification:', message);
   
   if (env.NODE_ENV !== 'production') {
     console.log('Notification:', message);

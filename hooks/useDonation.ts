@@ -1,6 +1,8 @@
+// The donationService backend is removed. Commenting out the hook implementation.
+
+/*
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { donationService } from '../services/DonationService';
 
 type CardDonationInput = {
   userId: string;
@@ -41,4 +43,5 @@ export const useDonation = () => {
     reset,
     stats
   };
-}; 
+};
+*/ 
