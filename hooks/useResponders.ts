@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../utils/supabaseClient';
 
+type Responder = { id: string } & { [key: string]: any };
+
 export function useResponders() {
-  const [responders, setResponders] = useState<any[]>([]);
+  const [responders, setResponders] = useState<Responder[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
