@@ -21,6 +21,9 @@ export default function ProfilePage() {
   const [medicalInfo, setMedicalInfo] = useState('');
   const [savingMedical, setSavingMedical] = useState(false);
   const [profilePhoto, setProfilePhoto] = useState('/user-photo.png');
+  const [photoUploading, setPhotoUploading] = useState(false);
+  const [photoError, setPhotoError] = useState<string | null>(null);
+  const [medicalSuccess, setMedicalSuccess] = useState(false);
 
   useEffect(() => {
     const fetchContacts = async () => {
@@ -38,6 +41,22 @@ export default function ProfilePage() {
       setLoading(false);
     };
     fetchContacts();
+  }, []);
+
+  useEffect(() => {
+    // Fetch profile photo and medical info on mount
+    (async () => {
+      const { data: userData } = await supabase.auth.getUser();
+      const userId = userData.user?.id;
+      if (!userId) return;
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('profile_photo, medical_info')
+        .eq('id', userId)
+        .single();
+      if (profile?.profile_photo) setProfilePhoto(profile.profile_photo);
+      if (profile?.medical_info) setMedicalInfo(profile.medical_info);
+    })();
   }, []);
 
   const openModal = (contact?: Contact) => {
@@ -120,27 +139,20 @@ export default function ProfilePage() {
 
   const handleSaveMedicalInfo = async () => {
     setSavingMedical(true);
+    setMedicalSuccess(false);
     const { data: userData } = await supabase.auth.getUser();
     const userId = userData.user?.id;
-
     if (userId) {
-      // Update user profile with medical info
       const { error } = await supabase
         .from('profiles')
-        .upsert({ 
-          id: userId, 
-          medical_info: medicalInfo 
-        });
-      
+        .update({ medical_info: medicalInfo })
+        .eq('id', userId);
       if (!error) {
-        // Show success feedback
-        setTimeout(() => setSavingMedical(false), 1000);
-      } else {
-        setSavingMedical(false);
+        setMedicalSuccess(true);
+        setTimeout(() => setMedicalSuccess(false), 2000);
       }
-    } else {
-      setSavingMedical(false);
     }
+    setSavingMedical(false);
   };
 
   const handleChangePhoto = () => {
@@ -150,14 +162,34 @@ export default function ProfilePage() {
     input.onchange = async (e) => {
       const file = (e.target as HTMLInputElement).files?.[0];
       if (file) {
-        // Create a preview URL
-        const previewUrl = URL.createObjectURL(file);
-        setProfilePhoto(previewUrl);
-        
-        // TODO: Upload to Supabase Storage and update profile
-        // const { data, error } = await supabase.storage
-        //   .from('avatars')
-        //   .upload(`user-${userId}.jpg`, file);
+        setPhotoUploading(true);
+        setPhotoError(null);
+        const { data: userData } = await supabase.auth.getUser();
+        const userId = userData.user?.id;
+        if (!userId) {
+          setPhotoError('User not found');
+          setPhotoUploading(false);
+          return;
+        }
+        // Upload to Supabase Storage
+        const filePath = `user-${userId}.jpg`;
+        // Remove previous file if exists
+        await supabase.storage.from('avatars').remove([filePath]);
+        const { error: uploadError } = await supabase.storage.from('avatars').upload(filePath, file, { upsert: true });
+        if (uploadError) {
+          setPhotoError('Upload failed: ' + uploadError.message);
+          setPhotoUploading(false);
+          return;
+        }
+        // Get public URL
+        const { data: publicUrlData } = supabase.storage.from('avatars').getPublicUrl(filePath);
+        const publicUrl = publicUrlData?.publicUrl;
+        if (publicUrl) {
+          setProfilePhoto(publicUrl);
+          // Update profile
+          await supabase.from('profiles').update({ profile_photo: publicUrl }).eq('id', userId);
+        }
+        setPhotoUploading(false);
       }
     };
     input.click();
@@ -181,10 +213,13 @@ export default function ProfilePage() {
           />
           <button 
             onClick={handleChangePhoto}
-            className="text-sm px-6 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition flex items-center gap-2"
+            className="text-sm px-6 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition flex items-center gap-2 disabled:opacity-60"
+            disabled={photoUploading}
           >
-            <Camera size={16} /> Change Photo
+            <Camera size={16} />
+            {photoUploading ? 'Uploading...' : 'Change Photo'}
           </button>
+          {photoError && <div className="text-red-500 text-sm mt-1">{photoError}</div>}
         </div>
 
         {/* Emergency Contacts */}
@@ -243,6 +278,7 @@ export default function ProfilePage() {
             <Save size={16} />
             {savingMedical ? 'Saving...' : 'Save Medical Info'}
           </button>
+          {medicalSuccess && <div className="text-green-400 text-sm mt-2">Medical info saved!</div>}
         </div>
 
         {/* Modal */}

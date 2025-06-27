@@ -46,6 +46,8 @@ export interface Profile {
   phone?: string;
   medical_info?: string;
   created_at?: string;
+  notifications_enabled?: boolean;
+  location_sharing?: boolean;
   // Add any other fields from your 'profiles' table
 }
 

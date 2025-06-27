@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { supabase } from '../../utils/supabaseClient';
 import { 
   Bell, 
@@ -13,12 +13,48 @@ import {
   ToggleLeft,
   ToggleRight
 } from 'lucide-react';
+import { useAuth } from '../../hooks/useAuth';
+import { useProfile } from '../../hooks/useProfile';
 
 export default function SettingsPage() {
-  const [notifications, setNotifications] = useState(true);
-  const [locationSharing, setLocationSharing] = useState(true);
+  const { user } = useAuth();
+  const userId = user?.id || null;
+  const { profile, updateProfile, loading: profileLoading } = useProfile(userId);
+  const [notifications, setNotifications] = useState(profile?.notifications_enabled ?? true);
+  const [locationSharing, setLocationSharing] = useState(profile?.location_sharing ?? true);
   const [darkMode, setDarkMode] = useState(true);
   const [loading, setLoading] = useState(false);
+  const [notifLoading, setNotifLoading] = useState(false);
+  const [locLoading, setLocLoading] = useState(false);
+
+  // Sync state with profile
+  useEffect(() => {
+    setNotifications(profile?.notifications_enabled ?? true);
+    setLocationSharing(profile?.location_sharing ?? true);
+  }, [profile]);
+
+  const handleToggleNotifications = async () => {
+    setNotifLoading(true);
+    if (!notifications) {
+      // Request browser permission
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') {
+        setNotifLoading(false);
+        return;
+      }
+    }
+    setNotifications(!notifications);
+    await updateProfile({ notifications_enabled: !notifications });
+    setNotifLoading(false);
+  };
+
+  const handleToggleLocationSharing = async () => {
+    setLocLoading(true);
+    setLocationSharing(!locationSharing);
+    await updateProfile({ location_sharing: !locationSharing });
+    setLocLoading(false);
+    // Optionally: trigger a callback/side effect in the app to enable/disable geolocation
+  };
 
   const handleLogout = async () => {
     setLoading(true);
@@ -39,8 +75,9 @@ export default function SettingsPage() {
       description: 'Receive emergency alerts and updates',
       action: (
         <button
-          onClick={() => setNotifications(!notifications)}
+          onClick={handleToggleNotifications}
           className="flex items-center"
+          disabled={notifLoading || profileLoading}
         >
           {notifications ? (
             <ToggleRight size={24} className="text-primary" />
@@ -56,8 +93,9 @@ export default function SettingsPage() {
       description: 'Share your location with emergency responders',
       action: (
         <button
-          onClick={() => setLocationSharing(!locationSharing)}
+          onClick={handleToggleLocationSharing}
           className="flex items-center"
+          disabled={locLoading || profileLoading}
         >
           {locationSharing ? (
             <ToggleRight size={24} className="text-primary" />

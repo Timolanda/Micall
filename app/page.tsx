@@ -8,6 +8,10 @@ import ResponderMap from '../components/ResponderMap';
 import LoadingIndicator from '../components/LoadingIndicator';
 import { supabase } from '../utils/supabaseClient';
 import { Users, AlertTriangle, MapPin, Shield, Zap } from 'lucide-react';
+import Modal from '../components/Modal';
+import { useContacts } from '../hooks/useContacts';
+import { useHistory } from '../hooks/useHistory';
+import { useAuth } from '../hooks/useAuth';
 
 export default function HomePage() {
   const [loading, setLoading] = useState(false);
@@ -16,7 +20,13 @@ export default function HomePage() {
   const [emergencyActive, setEmergencyActive] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [showContacts, setShowContacts] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
   const router = useRouter();
+  const { user } = useAuth();
+  const userId = user?.id || null;
+  const { contacts, loading: contactsLoading, error: contactsError } = useContacts(userId);
+  const { history, loading: historyLoading, error: historyError } = useHistory(userId);
 
   // Auth guard - must be first
   useEffect(() => {
@@ -170,6 +180,61 @@ export default function HomePage() {
         </div>
       )}
 
+      {/* Contacts Modal */}
+      {showContacts && (
+        <Modal onClose={() => setShowContacts(false)}>
+          <h2 className="text-xl font-bold mb-4">Emergency Contacts</h2>
+          {contactsLoading ? (
+            <div>Loading...</div>
+          ) : contactsError ? (
+            <div className="text-red-500">{contactsError}</div>
+          ) : contacts.length === 0 ? (
+            <div className="text-zinc-400">No contacts found.</div>
+          ) : (
+            <ul className="space-y-3">
+              {contacts.map((c) => (
+                <li key={c.id} className="flex items-center justify-between bg-zinc-800 rounded-lg p-3">
+                  <div>
+                    <div className="font-medium">{c.name}</div>
+                    <div className="text-sm text-zinc-400">{c.phone}</div>
+                  </div>
+                  <a href={`tel:${c.phone}`} className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded-lg text-sm">Call</a>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Modal>
+      )}
+
+      {/* History Modal */}
+      {showHistory && (
+        <Modal onClose={() => setShowHistory(false)}>
+          <h2 className="text-xl font-bold mb-4">Emergency History</h2>
+          {historyLoading ? (
+            <div>Loading...</div>
+          ) : historyError ? (
+            <div className="text-red-500">{historyError}</div>
+          ) : history.length === 0 ? (
+            <div className="text-zinc-400">No emergency history yet.</div>
+          ) : (
+            <ul className="space-y-3 max-h-80 overflow-y-auto">
+              {history.map((h) => (
+                <li key={h.id} className="bg-zinc-800 rounded-lg p-3">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="font-medium">{h.type}</span>
+                    <span className="text-xs text-zinc-400">{new Date(h.created_at).toLocaleString()}</span>
+                  </div>
+                  <div className="text-sm text-zinc-300">{h.message}</div>
+                  {h.video_url && (
+                    <a href={h.video_url} target="_blank" rel="noopener noreferrer" className="text-blue-400 text-xs mt-1 inline-block">View Video</a>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </Modal>
+      )}
+
       <div className="max-w-4xl mx-auto p-4 pt-8 pb-20">
         {/* Hero Section */}
         <div className="text-center mb-8">
@@ -258,19 +323,31 @@ export default function HomePage() {
 
         {/* Quick Actions */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <button className="bg-gray-800/50 rounded-xl p-4 border border-gray-700/50 hover:bg-gray-700/50 transition-colors text-center">
+          <button
+            className="bg-gray-800/50 rounded-xl p-4 border border-gray-700/50 hover:bg-gray-700/50 transition-colors text-center"
+            onClick={() => window.location.href = 'tel:911'}
+          >
             <div className="text-2xl mb-2">📞</div>
             <div className="text-sm font-medium">Call 911</div>
           </button>
-          <button className="bg-gray-800/50 rounded-xl p-4 border border-gray-700/50 hover:bg-gray-700/50 transition-colors text-center">
+          <button
+            className="bg-gray-800/50 rounded-xl p-4 border border-gray-700/50 hover:bg-gray-700/50 transition-colors text-center"
+            onClick={() => setShowContacts(true)}
+          >
             <div className="text-2xl mb-2">👥</div>
             <div className="text-sm font-medium">Contacts</div>
           </button>
-          <button className="bg-gray-800/50 rounded-xl p-4 border border-gray-700/50 hover:bg-gray-700/50 transition-colors text-center">
+          <button
+            className="bg-gray-800/50 rounded-xl p-4 border border-gray-700/50 hover:bg-gray-700/50 transition-colors text-center"
+            onClick={() => setShowHistory(true)}
+          >
             <div className="text-2xl mb-2">📋</div>
             <div className="text-sm font-medium">History</div>
           </button>
-          <button className="bg-gray-800/50 rounded-xl p-4 border border-gray-700/50 hover:bg-gray-700/50 transition-colors text-center">
+          <button
+            className="bg-gray-800/50 rounded-xl p-4 border border-gray-700/50 hover:bg-gray-700/50 transition-colors text-center"
+            onClick={() => router.push('/settings')}
+          >
             <div className="text-2xl mb-2">⚙️</div>
             <div className="text-sm font-medium">Settings</div>
           </button>
