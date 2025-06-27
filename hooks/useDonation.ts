@@ -2,16 +2,29 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { donationService } from '../services/DonationService';
 
+type CardDonationInput = {
+  userId: string;
+  amount: number;
+  currency: string;
+  paymentMethodId: string;
+  message?: string;
+  anonymous: boolean;
+};
+
+type CardDonationResult = {
+  donation: any;
+  paymentIntent: any;
+};
+
 export const useDonation = () => {
-  const { mutateAsync: createDonation, isLoading } = useMutation({
+  const { mutate, isPending, data, error, reset } = useMutation<CardDonationResult, Error, CardDonationInput>({
     mutationFn: donationService.createCardDonation,
     onSuccess: () => {
-      toast.success('Thank you for your donation!');
+      toast.success('Donation successful!');
     },
-    onError: (error) => {
-      toast.error('Failed to process donation');
-      console.error('Donation error:', error);
-    }
+    onError: (error: Error) => {
+      toast.error(error.message || 'Donation failed');
+    },
   });
 
   const { data: stats } = useQuery({
@@ -21,8 +34,11 @@ export const useDonation = () => {
   });
 
   return {
-    createDonation,
-    isLoading,
+    donate: mutate,
+    isPending,
+    data,
+    error,
+    reset,
     stats
   };
 }; 
