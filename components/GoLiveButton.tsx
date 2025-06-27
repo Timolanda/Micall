@@ -1,5 +1,5 @@
 'use client';
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { supabase } from '../utils/supabaseClient';
 import { VideoIcon, UploadCloud, Loader2, Square } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
@@ -56,6 +56,18 @@ export default function GoLiveButton({ onStart }: { onStart: () => void }) {
     }, 1000);
   };
 
+  // Attach stream to video element when both are ready
+  useEffect(() => {
+    if (recording && videoRef.current && streamRef.current) {
+      videoRef.current.srcObject = streamRef.current;
+      videoRef.current.play();
+    }
+    // Clean up srcObject when not recording
+    if (!recording && videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+  }, [recording]);
+
   // Full workflow: alert, then record
   const startWorkflow = async () => {
     onStart?.();
@@ -90,10 +102,6 @@ export default function GoLiveButton({ onStart }: { onStart: () => void }) {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
       streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.play();
-      }
       mediaRecorderRef.current = new MediaRecorder(stream);
       videoChunks.current = [];
 
