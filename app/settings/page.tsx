@@ -24,7 +24,7 @@ export default function SettingsPage() {
     setLoading(true);
     try {
       await supabase.auth.signOut();
-      window.location.href = '/';
+      window.location.href = '/landing';
     } catch (error) {
       console.error('Logout error:', error);
     } finally {

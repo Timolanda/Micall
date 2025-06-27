@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import GoLiveButton from '../components/GoLiveButton';
 import SOSButton from '../components/SOSButton';
 import ResponderMap from '../components/ResponderMap';
@@ -13,10 +14,25 @@ export default function HomePage() {
   const [nearbyResponders, setNearbyResponders] = useState<number>(0);
   const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
   const [emergencyActive, setEmergencyActive] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const router = useRouter();
 
-  // Get user location
+  // Auth guard - must be first
   useEffect(() => {
-    if (!navigator.geolocation) return;
+    supabase.auth.getUser().then(({ data }) => {
+      if (!data.user) {
+        router.replace('/landing');
+      } else {
+        setIsAuthenticated(true);
+        setAuthChecked(true);
+      }
+    });
+  }, [router]);
+
+  // Get user location - only if authenticated
+  useEffect(() => {
+    if (!isAuthenticated || !navigator.geolocation) return;
     
     const watchId = navigator.geolocation.watchPosition(
       (pos) => {
@@ -28,11 +44,11 @@ export default function HomePage() {
     );
     
     return () => navigator.geolocation.clearWatch(watchId);
-  }, []);
+  }, [isAuthenticated]);
 
-  // Fetch nearby responders count
+  // Fetch nearby responders count - only if authenticated and has location
   useEffect(() => {
-    if (!userLocation) return;
+    if (!isAuthenticated || !userLocation) return;
 
     const fetchResponders = async () => {
       try {
@@ -60,7 +76,7 @@ export default function HomePage() {
     return () => {
       channel.unsubscribe();
     };
-  }, [userLocation]);
+  }, [isAuthenticated, userLocation]);
 
   const handleGoLive = async () => {
     setLoading(true);
@@ -116,6 +132,24 @@ export default function HomePage() {
       }
     }
   };
+
+  // Show loading while checking auth
+  if (!authChecked) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-black text-white">
+        <LoadingIndicator label="Checking authentication..." />
+      </div>
+    );
+  }
+
+  // Show loading while not authenticated (will redirect)
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-black text-white">
+        <LoadingIndicator label="Redirecting..." />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-black via-gray-900 to-black text-white overflow-y-auto">
@@ -176,38 +210,32 @@ export default function HomePage() {
           </div>
 
           {/* Nearby Responders */}
-          <div className="bg-gradient-to-br from-green-600/20 to-green-800/20 rounded-2xl p-6 border border-green-500/30">
+          <div className="bg-gradient-to-br from-green-600/20 to-green-800/20 rounded-2xl p-6 border border-green-500/30 hover:border-green-400/50 transition-all duration-300 hover:scale-105">
             <div className="text-center">
               <div className="mb-4 flex justify-center">
-                <div className="w-20 h-20 bg-green-600/30 rounded-full flex items-center justify-center border-2 border-green-500/50">
+                <div className="bg-green-600/20 rounded-full p-4 border border-green-500/50">
                   <Users size={32} className="text-green-400" />
                 </div>
               </div>
               <h3 className="text-lg font-semibold mb-2">Nearby Responders</h3>
-              <div className="text-3xl font-bold text-green-400 mb-2">{nearbyResponders}</div>
+              <p className="text-2xl font-bold text-green-400 mb-1">{nearbyResponders}</p>
               <p className="text-sm text-gray-400">Available in your area</p>
             </div>
           </div>
         </div>
 
-        {/* Status Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-          <div className="bg-gray-800/50 rounded-xl p-4 border border-gray-700/50">
+        {/* Status Indicators */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+          <div className="bg-gray-900/50 rounded-xl p-4 border border-gray-700/50">
             <div className="flex items-center gap-3">
               <div className="w-3 h-3 bg-green-400 rounded-full animate-pulse"></div>
-              <span className="text-sm text-gray-300">System Online</span>
+              <span className="text-sm text-gray-300">Location Services Active</span>
             </div>
           </div>
-          <div className="bg-gray-800/50 rounded-xl p-4 border border-gray-700/50">
-            <div className="flex items-center gap-3">
-              <MapPin size={16} className="text-blue-400" />
-              <span className="text-sm text-gray-300">Location Active</span>
-            </div>
-          </div>
-          <div className="bg-gray-800/50 rounded-xl p-4 border border-gray-700/50">
+          <div className="bg-gray-900/50 rounded-xl p-4 border border-gray-700/50">
             <div className="flex items-center gap-3">
               <Zap size={16} className="text-yellow-400" />
-              <span className="text-sm text-gray-300">Ready for Emergency</span>
+              <span className="text-sm text-gray-300">Emergency Network Online</span>
             </div>
           </div>
         </div>
