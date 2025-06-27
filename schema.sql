@@ -205,3 +205,35 @@ create policy "Allow authenticated read from videos" on storage.objects
 create policy "Allow authenticated delete from videos" on storage.objects
   for delete using (bucket_id = 'videos' and auth.role() = 'authenticated');
 
+-- Allow anyone to download files from the 'videos' bucket
+CREATE POLICY "Public read access to videos"
+ON storage.objects
+FOR SELECT
+USING (
+  bucket_id = 'videos'
+);
+
+-- Allow authenticated users to upload to the 'videos' bucket
+CREATE POLICY "Authenticated upload to videos"
+ON storage.objects
+FOR INSERT
+WITH CHECK (
+  bucket_id = 'videos' AND auth.role() = 'authenticated'
+);
+
+-- Allow authenticated users to update their own videos
+CREATE POLICY "Authenticated update own videos"
+ON storage.objects
+FOR UPDATE
+USING (
+  bucket_id = 'videos' AND auth.role() = 'authenticated'
+);
+
+-- Allow authenticated users to delete their own videos
+CREATE POLICY "Authenticated delete own videos"
+ON storage.objects
+FOR DELETE
+USING (
+  bucket_id = 'videos' AND auth.role() = 'authenticated'
+);
+
