@@ -22,6 +22,8 @@ export default function HomePage() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [showContacts, setShowContacts] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [showSOSModal, setShowSOSModal] = useState(false);
+  const [sosLoading, setSOSLoading] = useState(false);
   const router = useRouter();
   const { user } = useAuth();
   const userId = user?.id || null;
@@ -92,8 +94,7 @@ export default function HomePage() {
     setLoading(true);
     setEmergencyActive(true);
 
-    // Simulate delay and vibration
-    setTimeout(() => setLoading(false), 4000);
+    // Remove countdown: Go Live immediately
     if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
 
     // Create emergency alert
@@ -101,9 +102,22 @@ export default function HomePage() {
       try {
         const { data: userData } = await supabase.auth.getUser();
         const userId = userData.user?.id;
-        
+        const userEmail = userData.user?.email;
         if (userId) {
-          await supabase.from('emergency_alerts').insert({
+          // Fallback: Ensure profile exists
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('id')
+            .eq('id', userId)
+            .single();
+          if (!profile) {
+            // Create minimal profile
+            await supabase.from('profiles').insert({
+              id: userId,
+              full_name: userEmail || 'User',
+            });
+          }
+          await supabase.from('alerts').insert({
             user_id: userId,
             type: 'video',
             lat: userLocation[0],
@@ -116,24 +130,29 @@ export default function HomePage() {
         console.error('Error creating emergency alert:', error);
       }
     }
+    setLoading(false);
   };
 
-  const handleSOS = async () => {
+  const handleSOS = () => {
+    setShowSOSModal(true);
+  };
+
+  const handleSOSSubmit = async (emergencyType: string) => {
+    setSOSLoading(true);
     setEmergencyActive(true);
-    
+    setShowSOSModal(false);
     // Create emergency alert
     if (userLocation) {
       try {
         const { data: userData } = await supabase.auth.getUser();
         const userId = userData.user?.id;
-        
         if (userId) {
           await supabase.from('emergency_alerts').insert({
             user_id: userId,
-            type: 'SOS',
+            type: emergencyType,
             lat: userLocation[0],
             lng: userLocation[1],
-            message: 'SOS ALERT - User needs immediate assistance',
+            message: `${emergencyType} ALERT - User needs immediate assistance`,
             status: 'active'
           });
         }
@@ -141,6 +160,7 @@ export default function HomePage() {
         console.error('Error creating emergency alert:', error);
       }
     }
+    setSOSLoading(false);
   };
 
   // Show loading while checking auth
@@ -164,9 +184,9 @@ export default function HomePage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-black via-gray-900 to-black text-white overflow-y-auto">
       {/* Loading overlay */}
-      {loading && (
+      {(loading || sosLoading) && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center">
-          <LoadingIndicator label="Starting Live..." />
+          <LoadingIndicator label={sosLoading ? 'Sending SOS...' : 'Starting Live...'} />
         </div>
       )}
 
@@ -178,6 +198,25 @@ export default function HomePage() {
             <span className="font-semibold text-lg">EMERGENCY ACTIVE - Responders Notified</span>
           </div>
         </div>
+      )}
+
+      {/* SOS Emergency Type Modal */}
+      {showSOSModal && (
+        <Modal onClose={() => setShowSOSModal(false)}>
+          <h2 className="text-xl font-bold mb-4">Select Emergency Type</h2>
+          <div className="grid gap-3">
+            {['Health', 'Assault', 'Fire', 'Accident', 'Other'].map((type) => (
+              <button
+                key={type}
+                className="w-full py-3 bg-red-600 hover:bg-red-700 rounded-lg font-semibold text-lg shadow-md text-white"
+                onClick={() => handleSOSSubmit(type)}
+                disabled={sosLoading}
+              >
+                {type}
+              </button>
+            ))}
+          </div>
+        </Modal>
       )}
 
       {/* Contacts Modal */}
@@ -325,10 +364,10 @@ export default function HomePage() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <button
             className="bg-gray-800/50 rounded-xl p-4 border border-gray-700/50 hover:bg-gray-700/50 transition-colors text-center"
-            onClick={() => window.location.href = 'tel:911'}
+            onClick={() => window.location.href = 'tel:999'}
           >
             <div className="text-2xl mb-2">📞</div>
-            <div className="text-sm font-medium">Call 911</div>
+            <div className="text-sm font-medium">Call 999</div>
           </button>
           <button
             className="bg-gray-800/50 rounded-xl p-4 border border-gray-700/50 hover:bg-gray-700/50 transition-colors text-center"

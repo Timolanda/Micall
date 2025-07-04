@@ -22,7 +22,7 @@ export default function SignUpPage() {
     }
     setLoading(true);
     try {
-      const { error } = await supabase.auth.signUp({
+      const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
@@ -32,6 +32,20 @@ export default function SignUpPage() {
       if (error) {
         setError(error.message);
       } else {
+        // Create profile row if user is returned (immediate sign up)
+        const user = data?.user;
+        if (user) {
+          const { error: profileError } = await supabase.from('profiles').insert({
+            id: user.id,
+            full_name: user.email, // or use user.user_metadata.full_name if available
+            // add other fields as needed
+          });
+          if (profileError) {
+            setError('Profile creation failed: ' + profileError.message);
+            setLoading(false);
+            return;
+          }
+        }
         setSuccess(true);
         setTimeout(() => router.push('/signin'), 3000);
       }

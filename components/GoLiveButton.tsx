@@ -38,22 +38,10 @@ export default function GoLiveButton({ onStart }: { onStart: () => void }) {
   };
 
   const handleClick = async () => {
-    setCountdown(3);
     setErrorMsg(null);
     setSuccessMsg(null);
     setAlertId(null);
-
-    const interval = setInterval(() => {
-      setCountdown((c) => {
-        if (c === 1) {
-          clearInterval(interval);
-          setCountdown(null);
-          startWorkflow();
-          return null;
-        }
-        return c! - 1;
-      });
-    }, 1000);
+    startWorkflow();
   };
 
   // Attach stream to video element when both are ready
@@ -186,16 +174,13 @@ export default function GoLiveButton({ onStart }: { onStart: () => void }) {
         aria-label="Go Live"
         className={`
           w-32 h-32 rounded-full text-white flex items-center justify-center text-xl font-bold border-4 transition-all duration-300 
-          ${countdown !== null ? 'bg-orange-500 border-orange-500' : ''}
           ${recording ? 'bg-red-600 border-red-600 animate-pulse' : ''}
           ${uploading ? 'bg-blue-600 border-blue-600 animate-pulse' : ''}
-          ${!recording && countdown === null && !uploading ? 'bg-primary border-primary hover:bg-primary/80' : ''}
+          ${!recording && !uploading ? 'bg-primary border-primary hover:bg-primary/80' : ''}
           focus:outline-none focus:ring-4 focus:ring-primary/50
         `}
       >
-        {countdown !== null ? (
-          <span className="text-4xl animate-bounce">{countdown}</span>
-        ) : recording ? (
+        {recording ? (
           <VideoIcon className="animate-ping" size={28} />
         ) : uploading ? (
           <UploadCloud className="animate-spin" size={28} />
