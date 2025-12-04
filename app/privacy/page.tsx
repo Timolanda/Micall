@@ -10,7 +10,7 @@ export default function PrivacyPolicyPage() {
         </div>
 
         <p className="mb-6 text-zinc-300">
-          MiCall (“we”, “our”, or “us”) is committed to protecting your privacy. This Privacy Policy explains how we collect, use, and protect your information when you use the MiCall mobile app, website, and related services (“Services”).
+          MiCall (&ldquo;we&rdquo;, &ldquo;our&rdquo;, or &ldquo;us&rdquo;) is committed to protecting your privacy. This Privacy Policy explains how we collect, use, and protect your information when you use the MiCall mobile app, website, and related services (&ldquo;Services&rdquo;).
         </p>
 
         <h2 className="text-xl font-semibold mb-2 mt-8">1. What We Collect</h2>
@@ -18,7 +18,7 @@ export default function PrivacyPolicyPage() {
         <ul className="list-disc list-inside text-zinc-300 mb-4">
           <li><b>Personal Information:</b> Name, Email address, Phone number, Emergency contact details</li>
           <li><b>Device & Location Data:</b> Precise location (for real-time emergency tracking), Device identifiers, IP address, App usage data (crashes, performance)</li>
-          <li><b>Emergency Data:</b> Live video recordings (when you press "Go Live"), SOS alerts and related timestamps, Uploaded photos/audio (if used in future updates)</li>
+          <li><b>Emergency Data:</b> Live video recordings (when you press &ldquo;Go Live&rdquo;), SOS alerts and related timestamps, Uploaded photos/audio (if used in future updates)</li>
         </ul>
 
         <h2 className="text-xl font-semibold mb-2 mt-8">2. How We Use Your Information</h2>
@@ -54,7 +54,7 @@ export default function PrivacyPolicyPage() {
           <li>Contact us about any privacy concern at <a href="mailto:timolanda@gmail.com" className="text-blue-400 underline">timolanda@gmail.com</a></li>
         </ul>
 
-        <h2 className="text-xl font-semibold mb-2 mt-8">6. Children's Privacy</h2>
+        <h2 className="text-xl font-semibold mb-2 mt-8">6. Children&rsquo;s Privacy</h2>
         <p className="mb-4 text-zinc-300">MiCall is not intended for users under the age of 13. We do not knowingly collect personal data from children without parental consent.</p>
 
         <h2 className="text-xl font-semibold mb-2 mt-8">7. Updates to This Policy</h2>

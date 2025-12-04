@@ -1,4 +1,5 @@
 'use client';
+import Image from 'next/image';
 import { useState, useEffect } from 'react';
 import { supabase } from '../../utils/supabaseClient';
 import Modal from '../../components/Modal';
@@ -206,9 +207,12 @@ export default function ProfilePage() {
 
         {/* Profile Photo */}
         <div className="flex flex-col items-center gap-4 mb-6">
-          <img
+          <Image
             src={profilePhoto}
             alt="User"
+            width={128}
+            height={128}
+            unoptimized
             className="w-32 h-32 rounded-full border-4 border-primary hover:scale-105 transition-all object-cover"
           />
           <button 

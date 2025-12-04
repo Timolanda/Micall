@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../../utils/supabaseClient';
 import { MapPin, Phone, Video, AlertTriangle, CheckCircle, X } from 'lucide-react';
+import { toast } from 'sonner';
 
 interface EmergencyAlert {
   id: number;
@@ -58,49 +59,77 @@ export default function ResponderDashboard() {
     }
   };
 
-  // Fetch emergency alerts
+  // Fetch emergency alerts near the responder
   useEffect(() => {
     const fetchAlerts = async () => {
       try {
-        const { data, error } = await supabase
-          .from('emergency_alerts')
-          .select('*')
-          .eq('status', 'active')
-          .order('created_at', { ascending: false });
-        
-        if (!error && data) {
-          setAlerts(data);
+        if (responderLocation) {
+          const { data, error } = await supabase.rpc('get_nearby_alerts', {
+            lat: responderLocation[0],
+            lng: responderLocation[1],
+            radius_km: 1,
+          });
+
+          if (!error && data) {
+            setAlerts(data as EmergencyAlert[]);
+          } else if (error) {
+            toast.error('Failed to load nearby alerts.');
+          }
+        } else {
+          const { data, error } = await supabase
+            .from('emergency_alerts')
+            .select('*')
+            .eq('status', 'active')
+            .order('created_at', { ascending: false });
+
+          if (!error && data) {
+            setAlerts(data as EmergencyAlert[]);
+          } else if (error) {
+            toast.error('Failed to load alerts.');
+          }
         }
-        setLoading(false);
       } catch (error) {
         console.error('Error fetching alerts:', error);
+        toast.error('Unexpected error loading alerts.');
+      } finally {
         setLoading(false);
       }
     };
 
     fetchAlerts();
 
-    // Subscribe to real-time updates
-    const channel = supabase.channel('emergency-alerts')
-      .on('postgres_changes', { 
-        event: '*', 
-        schema: 'public', 
-        table: 'emergency_alerts' 
-      }, (payload) => {
-        if (payload.eventType === 'INSERT') {
-          setAlerts(prev => [payload.new as EmergencyAlert, ...prev]);
-        } else if (payload.eventType === 'UPDATE') {
-          setAlerts(prev => prev.map(alert => 
-            alert.id === payload.new.id ? payload.new as EmergencyAlert : alert
-          ));
+    // Subscribe to real-time updates and keep list in sync
+    const channel = supabase
+      .channel('emergency-alerts')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'emergency_alerts',
+        },
+        (payload) => {
+          setAlerts((prev) => {
+            const next = [...prev];
+            if (payload.eventType === 'INSERT') {
+              const alert = payload.new as EmergencyAlert;
+              return [alert, ...next];
+            }
+            if (payload.eventType === 'UPDATE') {
+              return next.map((alert) =>
+                alert.id === payload.new.id ? (payload.new as EmergencyAlert) : alert
+              );
+            }
+            return next;
+          });
         }
-      })
+      )
       .subscribe();
 
     return () => {
       channel.unsubscribe();
     };
-  }, []);
+  }, [responderLocation]);
 
   const handleRespond = async (alertId: number) => {
     try {
@@ -108,8 +137,10 @@ export default function ResponderDashboard() {
         .from('emergency_alerts')
         .update({ status: 'responding' })
         .eq('id', alertId);
+      toast.success('Marked alert as responding.');
     } catch (error) {
       console.error('Error responding to alert:', error);
+      toast.error('Failed to update alert status.');
     }
   };
 
@@ -119,8 +150,10 @@ export default function ResponderDashboard() {
         .from('emergency_alerts')
         .update({ status: 'resolved' })
         .eq('id', alertId);
+      toast.success('Alert resolved.');
     } catch (error) {
       console.error('Error resolving alert:', error);
+      toast.error('Failed to resolve alert.');
     }
   };
 
@@ -187,7 +220,7 @@ export default function ResponderDashboard() {
             <div className="bg-zinc-900 rounded-xl p-8 text-center">
               <AlertTriangle size={48} className="text-zinc-600 mx-auto mb-4" />
               <p className="text-zinc-400">No active emergency alerts</p>
-              <p className="text-sm text-zinc-500 mt-2">You'll be notified when new alerts come in</p>
+              <p className="text-sm text-zinc-500 mt-2">You&rsquo;ll be notified when new alerts come in</p>
             </div>
           ) : (
             alerts.map((alert) => (

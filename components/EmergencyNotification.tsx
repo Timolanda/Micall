@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../utils/supabaseClient';
 import { AlertTriangle, MapPin, Phone, Video, X } from 'lucide-react';
+import { isWithinRadiusKm } from '../utils/distance';
 
 interface EmergencyAlert {
   id: number;
@@ -19,43 +20,109 @@ interface EmergencyAlert {
 export default function EmergencyNotification() {
   const [alerts, setAlerts] = useState<EmergencyAlert[]>([]);
   const [showNotifications, setShowNotifications] = useState(false);
+  const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
+  const RADIUS_KM = 1;
 
   useEffect(() => {
+    if (!navigator.geolocation) return;
+
+    const watchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        setUserLocation([pos.coords.latitude, pos.coords.longitude]);
+      },
+      (err) => {
+        console.error('Emergency notification geolocation error:', err);
+      },
+      { enableHighAccuracy: true }
+    );
+
+    return () => navigator.geolocation.clearWatch(watchId);
+  }, []);
+
+  useEffect(() => {
+    if (!userLocation) return;
+    let isActive = true;
+
+    const fetchActiveAlerts = async () => {
+      const { data, error } = await supabase
+        .from('emergency_alerts')
+        .select('*')
+        .eq('status', 'active')
+        .order('created_at', { ascending: false });
+
+      if (!isActive) return;
+
+      if (error) {
+        console.error('Error fetching emergency alerts:', error);
+        return;
+      }
+
+      const filtered = (data || []).filter(
+        (alert) =>
+          typeof alert.lat === 'number' &&
+          typeof alert.lng === 'number' &&
+          isWithinRadiusKm(userLocation, [alert.lat, alert.lng], RADIUS_KM)
+      );
+
+      if (filtered.length > 0) {
+        setAlerts(filtered);
+        setShowNotifications(true);
+      }
+    };
+
+    fetchActiveAlerts();
+    return () => {
+      isActive = false;
+    };
+  }, [userLocation]);
+
+  useEffect(() => {
+    if (!userLocation) return;
     // Subscribe to new emergency alerts
     const channel = supabase.channel('emergency-notifications')
-      .on('postgres_changes', { 
-        event: 'INSERT', 
-        schema: 'public', 
-        table: 'emergency_alerts',
-        filter: 'status=eq.active'
-      }, (payload) => {
-        const newAlert = payload.new as EmergencyAlert;
-        setAlerts(prev => [newAlert, ...prev]);
-        setShowNotifications(true);
-        
-        // Play notification sound
-        const audio = new Audio('/alert.mp3');
-        audio.play().catch(() => {
-          // Fallback to browser notification sound
-          console.log('Emergency alert received!');
-        });
-        
-        // Show browser notification if supported
-        if ('Notification' in window && Notification.permission === 'granted') {
-          new Notification('Emergency Alert', {
-            body: newAlert.message,
-            icon: '/alert-icon.png',
-            tag: `alert-${newAlert.id}`,
-            requireInteraction: true
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'emergency_alerts',
+          filter: 'status=eq.active'
+        },
+        (payload) => {
+          const newAlert = payload.new as EmergencyAlert;
+          if (
+            typeof newAlert.lat === 'number' &&
+            typeof newAlert.lng === 'number' &&
+            isWithinRadiusKm(userLocation, [newAlert.lat, newAlert.lng], RADIUS_KM)
+          ) {
+            setAlerts((prev) => [newAlert, ...prev]);
+            setShowNotifications(true);
+          }
+
+          // Play notification sound
+          const audio = new Audio('/alert.mp3');
+          audio.play().catch(() => {
+            // Fallback to browser notification sound
+            console.log('Emergency alert received!');
           });
+
+          // Show browser notification if supported
+          if ('Notification' in window && Notification.permission === 'granted') {
+            new Notification('Emergency Alert', {
+              body: newAlert.message,
+              icon: '/alert-icon.png',
+              tag: `alert-${newAlert.id}`,
+              requireInteraction: true
+            });
+          }
         }
-      })
+      )
       .subscribe();
 
     return () => {
       channel.unsubscribe();
     };
-  }, []);
+  }, [userLocation]);
 
   const handleRespond = async (alertId: number) => {
     try {
@@ -86,7 +153,7 @@ export default function EmergencyNotification() {
     }
   };
 
-  if (!showNotifications || alerts.length === 0) return null;
+  if (!showNotifications || alerts.length === 0 || !userLocation) return null;
 
   return (
     <div className="fixed top-4 right-4 z-50 space-y-2 max-w-sm">

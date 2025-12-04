@@ -1,9 +1,10 @@
 'use client';
 import { useState, useRef, useEffect } from 'react';
 import { supabase } from '../utils/supabaseClient';
-import { VideoIcon, UploadCloud, Loader2, Square } from 'lucide-react';
+import { VideoIcon, UploadCloud, Square } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { useProfile } from '../hooks/useProfile';
+import { toast } from 'sonner';
 
 export default function GoLiveButton({ onStart }: { onStart: () => void }) {
   const [countdown, setCountdown] = useState<number | null>(null);
@@ -64,6 +65,9 @@ export default function GoLiveButton({ onStart }: { onStart: () => void }) {
 
     // 1. Get location
     const location = await getLocation();
+    if (!location) {
+      toast.warning('Location unavailable. Sharing last known coordinates only.');
+    }
 
     // 2. Create emergency alert immediately
     let alertIdCreated: number | null = null;
@@ -79,6 +83,7 @@ export default function GoLiveButton({ onStart }: { onStart: () => void }) {
       }).select('id').single();
       if (error) {
         setErrorMsg('Failed to create emergency alert: ' + error.message);
+        toast.error('Failed to create emergency alert');
         setRecording(false);
         return;
       }
@@ -119,6 +124,7 @@ export default function GoLiveButton({ onStart }: { onStart: () => void }) {
 
           if (error) {
             setErrorMsg('Upload failed: ' + error.message);
+            toast.error('Live video upload failed');
             return;
           }
 
@@ -130,15 +136,18 @@ export default function GoLiveButton({ onStart }: { onStart: () => void }) {
             }).eq('id', alertIdCreated);
             if (updateError) {
               setErrorMsg('Video uploaded but failed to update alert: ' + updateError.message);
+              toast.error('Alert update failed after upload');
               return;
             }
           }
 
           setSuccessMsg('Live video uploaded and emergency contacts notified!');
+          toast.success('Live video uploaded; responders notified');
         } catch (err: any) {
           setRecording(false);
           setUploading(false);
           setErrorMsg('Unexpected error: ' + (err.message || 'Unknown error occurred'));
+          toast.error('Unexpected error during upload');
         }
       };
 
@@ -151,6 +160,7 @@ export default function GoLiveButton({ onStart }: { onStart: () => void }) {
     } catch (err) {
       setRecording(false);
       setErrorMsg('Unable to access camera/mic. Please check permissions.');
+      toast.error('Camera/Mic access denied');
     }
   };
 

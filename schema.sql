@@ -123,6 +123,28 @@ as $$
     );
 $$;
 
+-- Function to get nearby alerts (within radius in km)
+create or replace function get_nearby_alerts(
+  lat double precision,
+  lng double precision,
+  radius_km double precision
+)
+returns setof emergency_alerts
+language sql
+as $$
+  select *
+  from emergency_alerts a
+  where a.status = 'active'
+    and a.lat is not null
+    and a.lng is not null
+    and ST_DWithin(
+      ST_SetSRID(ST_MakePoint(a.lng, a.lat), 4326),
+      ST_SetSRID(ST_MakePoint(lng, lat), 4326),
+      radius_km * 1000  -- Convert km to meters
+    )
+  order by a.created_at desc;
+$$;
+
 -- Trigger to update PostGIS location when lat/lng changes
 create or replace function update_responder_location()
 returns trigger as $$
@@ -167,12 +189,14 @@ create policy "Users can create own alerts" on emergency_alerts
 create policy "Users can view own alerts" on emergency_alerts
   for select using (auth.uid() = user_id);
 
-create policy "Responders can view nearby alerts" on emergency_alerts
+create policy "Responders can view active alerts" on emergency_alerts
   for select using (
-    exists (
-      select 1 from responders r 
-      where r.id = auth.uid() 
-        and r.available = true
+    status = 'active'
+    and exists (
+      select 1
+      from profiles p
+      where p.id = auth.uid()
+        and p.role = 'responder'
     )
   );
 
@@ -197,43 +221,50 @@ values ('videos', 'videos', false)
 on conflict (id) do nothing;
 
 create policy "Allow authenticated upload to videos" on storage.objects
-  for insert with check (bucket_id = 'videos' and auth.role() = 'authenticated');
+  for insert
+  with check (
+    bucket_id = 'videos'
+    and auth.role() = 'authenticated'
+  );
 
 create policy "Allow authenticated read from videos" on storage.objects
-  for select using (bucket_id = 'videos' and auth.role() = 'authenticated');
+  for select
+  using (
+    bucket_id = 'videos'
+    and auth.role() = 'authenticated'
+  );
 
-create policy "Allow authenticated delete from videos" on storage.objects
-  for delete using (bucket_id = 'videos' and auth.role() = 'authenticated');
-
--- Allow anyone to download files from the 'videos' bucket
-CREATE POLICY "Public read access to videos"
-ON storage.objects
-FOR SELECT
-USING (
+-- Public can download, but only from the 'videos' bucket
+create policy "Public read access to videos"
+on storage.objects
+for select
+using (
   bucket_id = 'videos'
 );
 
--- Allow authenticated users to upload to the 'videos' bucket
-CREATE POLICY "Authenticated upload to videos"
-ON storage.objects
-FOR INSERT
-WITH CHECK (
-  bucket_id = 'videos' AND auth.role() = 'authenticated'
+-- Authenticated users can upload to the 'videos' bucket
+create policy "Authenticated upload to videos (videos bucket)" on storage.objects
+for insert
+with check (
+  bucket_id = 'videos'
+  and auth.role() = 'authenticated'
 );
 
--- Allow authenticated users to update their own videos
-CREATE POLICY "Authenticated update own videos"
-ON storage.objects
-FOR UPDATE
-USING (
-  bucket_id = 'videos' AND auth.role() = 'authenticated'
+-- Authenticated users can update their own videos
+create policy "Authenticated update own videos" on storage.objects
+for update
+using (
+  bucket_id = 'videos'
+  and auth.role() = 'authenticated'
+  and owner = auth.uid()
 );
 
--- Allow authenticated users to delete their own videos
-CREATE POLICY "Authenticated delete own videos"
-ON storage.objects
-FOR DELETE
-USING (
-  bucket_id = 'videos' AND auth.role() = 'authenticated'
+-- Authenticated users can delete their own videos
+create policy "Authenticated delete own videos" on storage.objects
+for delete
+using (
+  bucket_id = 'videos'
+  and auth.role() = 'authenticated'
+  and owner = auth.uid()
 );
 

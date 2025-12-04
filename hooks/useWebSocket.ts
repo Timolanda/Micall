@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { useAuth } from './useAuth';
 import { env } from '../config/environment';
@@ -23,9 +23,13 @@ interface EmergencyAlert {
 export function useWebSocket() {
   const socketRef = useRef<Socket>();
   const { token, isAuthenticated } = useAuth();
+  const [isConnected, setIsConnected] = useState(false);
 
   const connect = useCallback(() => {
-    if (!isAuthenticated || !token) return;
+    if (!isAuthenticated || !token) {
+      setIsConnected(false);
+      return () => {};
+    }
 
     socketRef.current = io(env.API_URL, {
       auth: { token },
@@ -36,16 +40,17 @@ export function useWebSocket() {
       reconnectionAttempts: 5
     });
 
-    socketRef.current.on('connect', () => {
+    const handleConnect = () => {
       console.log('WebSocket connected');
+      setIsConnected(true);
       socketRef.current?.emit('authenticate', token);
-    });
+    };
 
-    socketRef.current.on('authenticated', () => {
+    const handleAuthenticated = () => {
       console.log('WebSocket authenticated');
-    });
+    };
 
-    socketRef.current.on('emergency-alert', (alert: EmergencyAlert) => {
+    const handleEmergencyAlert = (alert: EmergencyAlert) => {
       toast.error('Emergency Alert', {
         description: `${alert.user.name} needs help! Type: ${alert.type}`,
         action: {
@@ -55,17 +60,34 @@ export function useWebSocket() {
           }
         }
       });
-    });
+    };
 
-    socketRef.current.on('connect_error', (error) => {
+    const handleConnectError = (error: Error) => {
       console.error('WebSocket connection error:', error);
       toast.error('Connection Error', {
         description: 'Failed to connect to emergency service'
       });
-    });
+    };
+
+    const handleDisconnect = () => {
+      console.log('WebSocket disconnected');
+      setIsConnected(false);
+    };
+
+    socketRef.current.on('connect', handleConnect);
+    socketRef.current.on('authenticated', handleAuthenticated);
+    socketRef.current.on('emergency-alert', handleEmergencyAlert);
+    socketRef.current.on('connect_error', handleConnectError);
+    socketRef.current.on('disconnect', handleDisconnect);
 
     return () => {
+      socketRef.current?.off('connect', handleConnect);
+      socketRef.current?.off('authenticated', handleAuthenticated);
+      socketRef.current?.off('emergency-alert', handleEmergencyAlert);
+      socketRef.current?.off('connect_error', handleConnectError);
+      socketRef.current?.off('disconnect', handleDisconnect);
       socketRef.current?.disconnect();
+      setIsConnected(false);
     };
   }, [token, isAuthenticated]);
 
@@ -82,6 +104,6 @@ export function useWebSocket() {
 
   return {
     updateLocation,
-    isConnected: socketRef.current?.connected ?? false
+    isConnected
   };
 } 

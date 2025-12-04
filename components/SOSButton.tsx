@@ -1,33 +1,90 @@
 'use client';
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
+import { supabase } from '../utils/supabaseClient';
+import { useAuth } from '../hooks/useAuth';
+import { toast } from 'sonner';
 
 interface SOSButtonProps {
   onSOS?: () => void;
+  alertType?: string;
+  message?: string;
+  location?: [number, number] | null;
+  autoSend?: boolean;
 }
 
-export default function SOSButton({ onSOS }: SOSButtonProps) {
+export default function SOSButton({
+  onSOS,
+  alertType = 'SOS',
+  message = 'SOS alert triggered via emergency button',
+  location,
+  autoSend = true,
+}: SOSButtonProps) {
   const [loading, setLoading] = useState(false);
+  const { user } = useAuth();
 
-  const handleSOS = () => {
+  const getLocation = useCallback(async () => {
+    if (location) return location;
+    if (!navigator.geolocation) return null;
+    return new Promise<[number, number] | null>((resolve) => {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => resolve([pos.coords.latitude, pos.coords.longitude]),
+        () => resolve(null),
+        { enableHighAccuracy: true, timeout: 10000 }
+      );
+    });
+  }, [location]);
+
+  const sendSOSAlert = useCallback(async () => {
+    if (!user?.id) {
+      toast.error('Please sign in before sending an SOS alert.');
+      throw new Error('Unauthenticated');
+    }
+    const coords = await getLocation();
+    if (!coords) {
+      toast.warning('Location unavailable. Sending SOS without coordinates.');
+    }
+    const payload = {
+      user_id: user.id,
+      type: alertType,
+      lat: coords?.[0] ?? null,
+      lng: coords?.[1] ?? null,
+      message,
+      status: 'active',
+    };
+    const { error } = await supabase.from('emergency_alerts').insert(payload);
+    if (error) {
+      toast.error('Failed to send SOS alert.');
+      throw error;
+    }
+    toast.success('SOS alert sent. Responders are on the way.');
+  }, [alertType, getLocation, message, user?.id]);
+
+  const handleSOS = async () => {
+    if (loading) return;
     setLoading(true);
 
-    // Play alarm sound
-    const audio = new Audio('/alarm.mp3');
-    audio.play();
+    try {
+      // Play alarm sound
+      const audio = new Audio('/alarm.mp3');
+      audio.play().catch(() => {
+        console.warn('Unable to play SOS alarm sound');
+      });
 
-    // Vibrate pattern
-    if (navigator.vibrate) navigator.vibrate([300, 100, 300, 100, 300]);
+      // Vibrate pattern
+      if (navigator.vibrate) navigator.vibrate([300, 100, 300, 100, 300]);
 
-    // Call the parent onSOS function
-    onSOS?.();
+      if (autoSend) {
+        await sendSOSAlert();
+      }
 
-    // Simulate alert sending delay
-    setTimeout(() => {
+      // Notify parent (e.g., to open modals)
+      onSOS?.();
+    } catch (error) {
+      console.error(error);
+    } finally {
       setLoading(false);
-    }, 3000);
-
-    // TODO: Add Supabase location alert logic here
+    }
   };
 
   return (

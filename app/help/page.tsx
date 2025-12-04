@@ -26,7 +26,7 @@ export default function HelpPage() {
           <h2 className="text-xl font-semibold mb-3">Frequently Asked Questions</h2>
           <div className="space-y-4">
             <div>
-              <p className="font-medium">What happens when I press "Go Live"?</p>
+              <p className="font-medium">What happens when I press &ldquo;Go Live&rdquo;?</p>
               <p className="text-zinc-400 text-sm">Your camera and location are shared with emergency responders. A video is recorded and uploaded for responders to review.</p>
             </div>
             <div>
@@ -65,8 +65,8 @@ export default function HelpPage() {
               <p className="text-zinc-400 text-sm">Enable location services and check your browser/device permissions.</p>
             </div>
             <div>
-              <p className="font-medium">Can't sign in or reset password?</p>
-              <p className="text-zinc-400 text-sm">Use the "Forgot Password" link on the sign-in page or contact support for help.</p>
+              <p className="font-medium">Can&rsquo;t sign in or reset password?</p>
+              <p className="text-zinc-400 text-sm">Use the &ldquo;Forgot Password&rdquo; link on the sign-in page or contact support for help.</p>
             </div>
           </div>
         </section>

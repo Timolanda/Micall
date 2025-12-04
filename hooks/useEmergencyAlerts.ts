@@ -9,6 +9,7 @@ export function useEmergencyAlerts(userId: string | null) {
 
   useEffect(() => {
     if (!userId) return;
+    let isActive = true;
     setLoading(true);
     supabase
       .from('emergency_alerts')
@@ -16,6 +17,7 @@ export function useEmergencyAlerts(userId: string | null) {
       .eq('user_id', userId)
       .order('created_at', { ascending: false })
       .then(({ data, error }) => {
+        if (!isActive) return;
         setAlerts((data || []) as DbEmergencyAlert[]);
         setError(error ? error.message : null);
         setLoading(false);
@@ -28,6 +30,7 @@ export function useEmergencyAlerts(userId: string | null) {
       })
       .subscribe();
     return () => {
+      isActive = false;
       supabase.removeChannel(subscription);
     };
   }, [userId]);

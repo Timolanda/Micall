@@ -145,7 +145,7 @@ export default function SignInPage() {
         {/* Sign Up Link */}
         <div className="text-center mt-6">
           <p className="text-gray-400">
-            Don't have an account?{' '}
+            Don&rsquo;t have an account?{' '}
             <button
               onClick={() => router.push('/signup')}
               className="text-primary hover:text-blue-400 underline transition-colors font-medium"

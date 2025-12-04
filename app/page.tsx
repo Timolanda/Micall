@@ -12,6 +12,7 @@ import Modal from '../components/Modal';
 import { useContacts } from '../hooks/useContacts';
 import { useHistory } from '../hooks/useHistory';
 import { useAuth } from '../hooks/useAuth';
+import { toast } from 'sonner';
 
 export default function HomePage() {
   const [loading, setLoading] = useState(false);
@@ -98,37 +99,42 @@ export default function HomePage() {
     if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
 
     // Create emergency alert
-    if (userLocation) {
-      try {
-        const { data: userData } = await supabase.auth.getUser();
-        const userId = userData.user?.id;
-        const userEmail = userData.user?.email;
-        if (userId) {
-          // Fallback: Ensure profile exists
-          const { data: profile } = await supabase
-            .from('profiles')
-            .select('id')
-            .eq('id', userId)
-            .single();
-          if (!profile) {
-            // Create minimal profile
-            await supabase.from('profiles').insert({
-              id: userId,
-              full_name: userEmail || 'User',
-            });
-          }
-          await supabase.from('alerts').insert({
-            user_id: userId,
-            type: 'video',
-            lat: userLocation[0],
-            lng: userLocation[1],
-            message: 'User activated Go Live - video recording in progress',
-            status: 'active'
+    if (!userLocation) {
+      toast.warning('Enable location services before going live.');
+      setLoading(false);
+      return;
+    }
+    try {
+      const { data: userData } = await supabase.auth.getUser();
+      const userId = userData.user?.id;
+      const userEmail = userData.user?.email;
+      if (userId) {
+        // Fallback: Ensure profile exists
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('id')
+          .eq('id', userId)
+          .single();
+        if (!profile) {
+          // Create minimal profile
+          await supabase.from('profiles').insert({
+            id: userId,
+            full_name: userEmail || 'User',
           });
         }
-      } catch (error) {
-        console.error('Error creating emergency alert:', error);
+        await supabase.from('emergency_alerts').insert({
+          user_id: userId,
+          type: 'video',
+          lat: userLocation[0],
+          lng: userLocation[1],
+          message: 'User activated Go Live - video recording in progress',
+          status: 'active'
+        });
+        toast.success('Live alert created. Recording started.');
       }
+    } catch (error) {
+      console.error('Error creating emergency alert:', error);
+      toast.error('Unable to create live alert.');
     }
     setLoading(false);
   };
@@ -142,23 +148,28 @@ export default function HomePage() {
     setEmergencyActive(true);
     setShowSOSModal(false);
     // Create emergency alert
-    if (userLocation) {
-      try {
-        const { data: userData } = await supabase.auth.getUser();
-        const userId = userData.user?.id;
-        if (userId) {
-          await supabase.from('emergency_alerts').insert({
-            user_id: userId,
-            type: emergencyType,
-            lat: userLocation[0],
-            lng: userLocation[1],
-            message: `${emergencyType} ALERT - User needs immediate assistance`,
-            status: 'active'
-          });
-        }
-      } catch (error) {
-        console.error('Error creating emergency alert:', error);
+    if (!userLocation) {
+      toast.warning('Enable location services before sending SOS alerts.');
+      setSOSLoading(false);
+      return;
+    }
+    try {
+      const { data: userData } = await supabase.auth.getUser();
+      const userId = userData.user?.id;
+      if (userId) {
+        await supabase.from('emergency_alerts').insert({
+          user_id: userId,
+          type: emergencyType,
+          lat: userLocation[0],
+          lng: userLocation[1],
+          message: `${emergencyType} ALERT - User needs immediate assistance`,
+          status: 'active'
+        });
+        toast.success(`${emergencyType} alert sent to responders.`);
       }
+    } catch (error) {
+      console.error('Error creating emergency alert:', error);
+      toast.error('Unable to send SOS alert.');
     }
     setSOSLoading(false);
   };
@@ -306,7 +317,7 @@ export default function HomePage() {
           <div className="bg-gradient-to-br from-red-600/20 to-red-800/20 rounded-2xl p-6 border border-red-500/30 hover:border-red-400/50 transition-all duration-300 hover:scale-105">
             <div className="text-center">
               <div className="mb-4 flex justify-center">
-                <SOSButton onSOS={handleSOS} />
+                <SOSButton onSOS={handleSOS} autoSend={false} location={userLocation} />
               </div>
               <h3 className="text-lg font-semibold mb-2">SOS Emergency</h3>
               <p className="text-sm text-gray-400">Immediate emergency alert to all responders</p>
