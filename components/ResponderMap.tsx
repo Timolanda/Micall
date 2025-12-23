@@ -12,6 +12,51 @@ export default function ResponderMap() {
   const [isMapLoaded, setIsMapLoaded] = useState(false);
   const [mapError, setMapError] = useState<string | null>(null);
   const [isClient, setIsClient] = useState(false);
+  const leafletRef = useRef<any>(null);
+
+  // Create responder icon with status-based colors
+  const createResponderIcon = (status?: string) => {
+    if (!leafletRef.current) return null;
+    const L = leafletRef.current;
+
+    // Status-based colors
+    const statusColors: Record<string, string> = {
+      'available': '#10b981',      // Green
+      'en-route': '#3b82f6',       // Blue
+      'on-scene': '#f59e0b',       // Amber
+      'complete': '#8b5cf6',       // Purple
+    };
+
+    const color = statusColors[status || 'available'] || '#ef4444'; // Default red
+    
+    return L.divIcon({
+      className: 'custom-responder-marker',
+      html: `
+        <div style="
+          width: 20px; 
+          height: 20px; 
+          background: ${color}; 
+          border: 2px solid white; 
+          border-radius: 50%; 
+          box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+          position: relative;
+        ">
+          <div style="
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 6px;
+            height: 6px;
+            background: white;
+            border-radius: 50%;
+          "></div>
+        </div>
+      `,
+      iconSize: [20, 20],
+      iconAnchor: [10, 10],
+    });
+  };
 
   // Ensure we're on the client side
   useEffect(() => {
@@ -63,6 +108,7 @@ export default function ResponderMap() {
     const initMap = async () => {
       try {
         const L = await import('leaflet');
+        leafletRef.current = L; // Store reference for createResponderIcon
         
         // Check if map is already initialized
         if (leafletMap.current) return;
@@ -95,24 +141,6 @@ export default function ResponderMap() {
             `,
             iconSize: [20, 20],
             iconAnchor: [10, 10],
-          });
-        };
-
-        const createResponderIcon = () => {
-          return L.divIcon({
-            className: 'custom-responder-marker',
-            html: `
-              <div style="
-                width: 16px; 
-                height: 16px; 
-                background: #ef4444; 
-                border: 2px solid white; 
-                border-radius: 50%; 
-                box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-              "></div>
-            `,
-            iconSize: [16, 16],
-            iconAnchor: [8, 8],
           });
         };
 
@@ -192,27 +220,28 @@ export default function ResponderMap() {
             responderMarkers.current = [];
             
             // Add new responder markers
-            data?.forEach((r: { lat: number; lng: number; id: string }) => {
-              const responderIcon = L.divIcon({
-                className: 'custom-responder-marker',
-                html: `
-                  <div style="
-                    width: 16px; 
-                    height: 16px; 
-                    background: #ef4444; 
-                    border: 2px solid white; 
-                    border-radius: 50%; 
-                    box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-                  "></div>
-                `,
-                iconSize: [16, 16],
-                iconAnchor: [8, 8],
-              });
+            data?.forEach((r: { lat: number; lng: number; id: string; status?: string }) => {
+              const responderIcon = createResponderIcon(r.status);
+              
+              const statusLabel = r.status 
+                ? r.status.charAt(0).toUpperCase() + r.status.slice(1).replace('-', ' ')
+                : 'Available';
               
               const marker = L.marker([r.lat, r.lng], { 
                 icon: responderIcon,
-                title: 'Emergency Responder'
+                title: `Emergency Responder - ${statusLabel}`
               }).addTo(leafletMap.current!);
+              
+              // Add popup with responder status
+              marker.bindPopup(`
+                <div style="font-family: sans-serif; font-size: 12px;">
+                  <strong>Responder Status</strong><br/>
+                  Status: <span style="color: green; font-weight: bold;">${statusLabel}</span>
+                </div>
+              `, { 
+                maxWidth: 150,
+                className: 'responder-popup'
+              });
               
               responderMarkers.current.push(marker);
             });
