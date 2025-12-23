@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
-import { AlertCircle, Camera, X, Wifi } from 'lucide-react';
+import { useState, useRef, useEffect, useCallback } from 'react';
+import { AlertCircle, Camera, X, Wifi, AlertTriangle } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { supabase } from '../utils/supabaseClient';
 import { toast } from 'sonner';
@@ -31,6 +31,8 @@ export default function GoLiveButton() {
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const recordingStartTimeRef = useRef<number | null>(null);
   const isRecordingRef = useRef<boolean>(false);
+  const geolocationIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const currentAlertIdRef = useRef<string | null>(null);
 
   // Get user's current location
   const getCurrentLocation = (): Promise<{ latitude: number; longitude: number }> => {
@@ -59,7 +61,7 @@ export default function GoLiveButton() {
   };
 
   // Request camera and microphone permissions
-  const requestMediaPermissions = async () => {
+  const requestMediaPermissions = useCallback(async () => {
     try {
       setState({
         status: 'requesting-permission',
@@ -83,10 +85,9 @@ export default function GoLiveButton() {
       mediaStreamRef.current = stream;
       setShowPreview(true);
 
-      // Display stream in video element - CRITICAL FIX
+      // Display stream in video element
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        // Wait for video to load before playing
         videoRef.current.onloadedmetadata = () => {
           videoRef.current?.play().catch((e) => {
             console.error('Error playing video:', e);
@@ -111,10 +112,10 @@ export default function GoLiveButton() {
       toast.error(`Camera access denied: ${error.message}`);
       setShowPreview(false);
     }
-  };
+  }, []);
 
   // Start live streaming
-  const startLiveStream = async () => {
+  const startLiveStream = useCallback(async () => {
     if (!user) {
       toast.error('Please sign in first');
       return;
@@ -155,7 +156,11 @@ export default function GoLiveButton() {
         throw alertError;
       }
 
-      // Initialize MediaRecorder - CRITICAL FIX
+      if (alert) {
+        currentAlertIdRef.current = alert.id;
+      }
+
+      // Initialize MediaRecorder
       if (mediaStreamRef.current) {
         const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
           ? 'video/webm;codecs=vp9'
@@ -199,31 +204,32 @@ export default function GoLiveButton() {
                 message: `🔴 LIVE (${duration}s)`,
                 duration,
               }));
+            }
+          }, 1000);
 
-              // Broadcast location updates every 5 seconds
-              if (duration % 5 === 0) {
-                navigator.geolocation.getCurrentPosition((position) => {
-                  const newLoc = {
-                    latitude: position.coords.latitude,
-                    longitude: position.coords.longitude,
-                  };
-                  setLocation(newLoc);
+          // Broadcast location updates every 5 seconds
+          geolocationIntervalRef.current = setInterval(() => {
+            navigator.geolocation.getCurrentPosition((position) => {
+              const newLoc = {
+                latitude: position.coords.latitude,
+                longitude: position.coords.longitude,
+              };
+              setLocation(newLoc);
 
-                  // Update location in Supabase
+              // Update location in Supabase
+              if (currentAlertIdRef.current) {
+                Promise.resolve(
                   supabase
                     .from('emergency_alerts')
                     .update({
                       lat: newLoc.latitude,
                       lng: newLoc.longitude,
                     })
-                    .eq('user_id', user.id)
-                    .order('created_at', { ascending: false })
-                    .limit(1)
-                    .then();
-                });
+                    .eq('id', currentAlertIdRef.current)
+                ).catch((err: any) => console.error('Location update error:', err));
               }
-            }
-          }, 1000);
+            });
+          }, 5000);
         };
 
         mediaRecorderRef.current.onstop = () => {
@@ -231,6 +237,10 @@ export default function GoLiveButton() {
           if (timerRef.current) {
             clearInterval(timerRef.current);
             timerRef.current = null;
+          }
+          if (geolocationIntervalRef.current) {
+            clearInterval(geolocationIntervalRef.current);
+            geolocationIntervalRef.current = null;
           }
         };
 
@@ -246,11 +256,12 @@ export default function GoLiveButton() {
       });
       toast.error(`Failed to start live stream: ${error.message}`);
       isRecordingRef.current = false;
+      currentAlertIdRef.current = null;
     }
-  };
+  }, [user]);
 
-  // Stop live streaming and upload - CRITICAL FIX
-  const stopLiveStream = async () => {
+  // Stop live streaming and upload
+  const stopLiveStream = useCallback(async () => {
     if (!mediaRecorderRef.current || !isRecordingRef.current) {
       toast.error('Recording not active');
       return;
@@ -264,6 +275,16 @@ export default function GoLiveButton() {
       });
 
       isRecordingRef.current = false;
+
+      // Stop intervals
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+      if (geolocationIntervalRef.current) {
+        clearInterval(geolocationIntervalRef.current);
+        geolocationIntervalRef.current = null;
+      }
 
       // Stop the recorder
       mediaRecorderRef.current.stop();
@@ -314,15 +335,15 @@ export default function GoLiveButton() {
         .getPublicUrl(`${fileName}`);
 
       // Update alert with video URL
-      await supabase
-        .from('emergency_alerts')
-        .update({
-          video_url: urlData.publicUrl,
-          status: 'video_uploaded',
-        })
-        .eq('user_id', user?.id)
-        .order('created_at', { ascending: false })
-        .limit(1);
+      if (currentAlertIdRef.current) {
+        await supabase
+          .from('emergency_alerts')
+          .update({
+            video_url: urlData.publicUrl,
+            status: 'video_uploaded',
+          })
+          .eq('id', currentAlertIdRef.current);
+      }
 
       setState({
         status: 'idle',
@@ -334,6 +355,7 @@ export default function GoLiveButton() {
       chunksRef.current = [];
       recordingStartTimeRef.current = null;
       mediaRecorderRef.current = null;
+      currentAlertIdRef.current = null;
     } catch (error: any) {
       setState({
         status: 'error',
@@ -343,16 +365,21 @@ export default function GoLiveButton() {
       });
       toast.error(`Upload failed: ${error.message}`);
     }
-  };
+  }, [state.duration, user?.id]);
 
-  // Cancel streaming (no save) - CRITICAL FIX
-  const cancelLiveStream = () => {
+  // Cancel streaming (no save)
+  const cancelLiveStream = useCallback(() => {
     try {
       isRecordingRef.current = false;
 
       if (timerRef.current) {
         clearInterval(timerRef.current);
         timerRef.current = null;
+      }
+
+      if (geolocationIntervalRef.current) {
+        clearInterval(geolocationIntervalRef.current);
+        geolocationIntervalRef.current = null;
       }
 
       if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
@@ -373,7 +400,7 @@ export default function GoLiveButton() {
     } catch (error) {
       console.error('Error cancelling stream:', error);
     }
-  };
+  }, []);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -382,6 +409,10 @@ export default function GoLiveButton() {
 
       if (timerRef.current) {
         clearInterval(timerRef.current);
+      }
+
+      if (geolocationIntervalRef.current) {
+        clearInterval(geolocationIntervalRef.current);
       }
 
       if (mediaStreamRef.current) {
@@ -398,6 +429,14 @@ export default function GoLiveButton() {
 
   return (
     <div className="w-full max-w-md mx-auto">
+      {/* Emergency Warning */}
+      <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-3 flex items-start gap-2">
+        <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+        <p className="text-sm text-red-800">
+          <strong>Emergency Only:</strong> Only use Go Live for life-threatening situations. Misuse may result in penalties.
+        </p>
+      </div>
+
       {/* Video Preview */}
       {showPreview && mediaStreamRef.current && (
         <div className="mb-6 rounded-xl overflow-hidden bg-black shadow-lg relative">
