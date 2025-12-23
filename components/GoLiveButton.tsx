@@ -1,271 +1,518 @@
 'use client';
+
 import { useState, useRef, useEffect } from 'react';
-import { supabase } from '../utils/supabaseClient';
-import { VideoIcon, UploadCloud, Square } from 'lucide-react';
+import { AlertCircle, Camera, X, Wifi } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
-import { useProfile } from '../hooks/useProfile';
+import { supabase } from '../utils/supabaseClient';
 import { toast } from 'sonner';
 
-export default function GoLiveButton({ onStart }: { onStart: () => void }) {
-  const [recording, setRecording] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [successMsg, setSuccessMsg] = useState<string | null>(null);
-  const [alertId, setAlertId] = useState<number | null>(null);
-  const [isStopping, setIsStopping] = useState(false);
-  const [streamDuration, setStreamDuration] = useState(0);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const videoChunks = useRef<Blob[]>([]);
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const stopTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const locationIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const recordingStartTimeRef = useRef<number | null>(null);
+interface GoLiveState {
+  status: 'idle' | 'requesting-permission' | 'streaming' | 'uploading' | 'error';
+  message: string;
+  duration: number;
+  error?: string;
+}
 
+export default function GoLiveButton() {
   const { user } = useAuth();
-  const { profile } = useProfile(user?.id || null);
+  const [state, setState] = useState<GoLiveState>({
+    status: 'idle',
+    message: 'Ready to Go Live',
+    duration: 0,
+  });
+  const [location, setLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [showPreview, setShowPreview] = useState(false);
 
-  const getLocation = async (): Promise<{ lat: number; lng: number } | null> => {
-    return new Promise((resolve) => {
-      if (!navigator.geolocation) return resolve(null);
+  // Refs
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const recordingStartTimeRef = useRef<number | null>(null);
+  const isRecordingRef = useRef<boolean>(false);
+
+  // Get user's current location
+  const getCurrentLocation = (): Promise<{ latitude: number; longitude: number }> => {
+    return new Promise((resolve, reject) => {
+      if (!navigator.geolocation) {
+        reject(new Error('Geolocation not supported'));
+        return;
+      }
+
       navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        (position) => {
+          resolve({
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+          });
         },
-        () => resolve(null),
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
+        (error) => {
+          reject(error);
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 5000,
+        }
       );
     });
   };
 
-  const handleClick = async () => {
-    setErrorMsg(null);
-    setSuccessMsg(null);
-    setAlertId(null);
-    startWorkflow();
+  // Request camera and microphone permissions
+  const requestMediaPermissions = async () => {
+    try {
+      setState({
+        status: 'requesting-permission',
+        message: 'Requesting camera & microphone access...',
+        duration: 0,
+      });
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          facingMode: 'user',
+        },
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
+
+      mediaStreamRef.current = stream;
+      setShowPreview(true);
+
+      // Display stream in video element - CRITICAL FIX
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        // Wait for video to load before playing
+        videoRef.current.onloadedmetadata = () => {
+          videoRef.current?.play().catch((e) => {
+            console.error('Error playing video:', e);
+          });
+        };
+      }
+
+      setState({
+        status: 'idle',
+        message: 'Camera ready. Click "Go Live" to broadcast',
+        duration: 0,
+      });
+
+      toast.success('Camera enabled');
+    } catch (error: any) {
+      setState({
+        status: 'error',
+        message: 'Failed to access camera/microphone',
+        duration: 0,
+        error: error.message,
+      });
+      toast.error(`Camera access denied: ${error.message}`);
+      setShowPreview(false);
+    }
   };
 
-  useEffect(() => {
-    if (recording && videoRef.current && streamRef.current) {
-      videoRef.current.srcObject = streamRef.current;
-      videoRef.current.play();
-    }
-    if (!recording && videoRef.current) {
-      videoRef.current.srcObject = null;
-    }
-  }, [recording]);
-
-  const startWorkflow = async () => {
-    onStart?.();
-    setRecording(true);
-    setIsStopping(false);
-    setStreamDuration(0);
-    recordingStartTimeRef.current = Date.now();
-
-    const location = await getLocation();
-    if (!location) {
-      toast.warning('Location unavailable. Sharing last known coordinates only.');
+  // Start live streaming
+  const startLiveStream = async () => {
+    if (!user) {
+      toast.error('Please sign in first');
+      return;
     }
 
-    let alertIdCreated: number | null = null;
-    if (user?.id) {
-      const { data, error } = await supabase.from('emergency_alerts').insert({
-        user_id: user.id,
-        type: 'video',
-        status: 'active',
-        lat: location?.lat,
-        lng: location?.lng,
-        message: `Live video started by ${profile?.name || 'user'}`,
-        created_at: new Date().toISOString(),
-      }).select('id').single();
-      if (error) {
-        setErrorMsg('Failed to create emergency alert: ' + error.message);
-        toast.error('Failed to create emergency alert');
-        setRecording(false);
-        return;
-      }
-      alertIdCreated = data?.id;
-      setAlertId(alertIdCreated);
+    if (!mediaStreamRef.current) {
+      toast.error('Camera not initialized');
+      return;
     }
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-      streamRef.current = stream;
-      mediaRecorderRef.current = new MediaRecorder(stream);
-      videoChunks.current = [];
+      setState({
+        status: 'streaming',
+        message: 'Going live...',
+        duration: 0,
+      });
 
-      mediaRecorderRef.current.ondataavailable = (e) => {
-        if (e.data.size > 0) videoChunks.current.push(e.data);
-      };
+      // Get current location
+      const loc = await getCurrentLocation();
+      setLocation(loc);
 
-      mediaRecorderRef.current.onstop = async () => {
-        setUploading(true);
-        setIsStopping(false);
-        const blob = new Blob(videoChunks.current, { type: 'video/webm' });
-        const file = new File([blob], `live-${Date.now()}.webm`, { type: 'video/webm' });
+      // Create emergency alert in Supabase
+      const { data: alert, error: alertError } = await supabase
+        .from('emergency_alerts')
+        .insert({
+          user_id: user.id,
+          type: 'video',
+          message: 'Go Live emergency broadcast',
+          lat: loc.latitude,
+          lng: loc.longitude,
+          status: 'active',
+          video_url: null,
+        })
+        .select()
+        .single();
 
-        if (videoRef.current) {
-          videoRef.current.srcObject = null;
-        }
-        if (streamRef.current) {
-          streamRef.current.getTracks().forEach((track) => track.stop());
-          streamRef.current = null;
-        }
-
-        if (locationIntervalRef.current) {
-          clearInterval(locationIntervalRef.current);
-        }
-        if (timerIntervalRef.current) {
-          clearInterval(timerIntervalRef.current);
-        }
-
-        try {
-          const { data, error } = await supabase.storage.from('videos').upload(file.name, file);
-          setRecording(false);
-          setUploading(false);
-
-          if (error) {
-            setErrorMsg('Upload failed: ' + error.message);
-            toast.error('Live video upload failed');
-            return;
-          }
-
-          if (alertIdCreated) {
-            const { error: updateError } = await supabase.from('emergency_alerts').update({
-              video_url: data?.path,
-              status: 'video_uploaded',
-            }).eq('id', alertIdCreated);
-            if (updateError) {
-              setErrorMsg('Video uploaded but failed to update alert: ' + updateError.message);
-              toast.error('Alert update failed after upload');
-              return;
-            }
-          }
-
-          setSuccessMsg('Live video uploaded and emergency contacts notified!');
-          toast.success('Live video uploaded; responders notified');
-        } catch (err: any) {
-          setRecording(false);
-          setUploading(false);
-          setErrorMsg('Unexpected error: ' + (err.message || 'Unknown error occurred'));
-          toast.error('Unexpected error during upload');
-        }
-      };
-
-      mediaRecorderRef.current.start();
-
-      if (alertIdCreated) {
-        locationIntervalRef.current = setInterval(async () => {
-          const newLocation = await getLocation();
-          if (newLocation && alertIdCreated) {
-            try {
-              await supabase
-                .from('emergency_alerts')
-                .update({
-                  lat: newLocation.lat,
-                  lng: newLocation.lng,
-                })
-                .eq('id', alertIdCreated);
-            } catch (err) {
-              console.error('Error updating location:', err);
-            }
-          }
-        }, 5000);
+      if (alertError) {
+        throw alertError;
       }
 
-      timerIntervalRef.current = setInterval(() => {
-        if (recordingStartTimeRef.current) {
-          const duration = Math.floor((Date.now() - recordingStartTimeRef.current) / 1000);
-          setStreamDuration(duration);
-        }
-      }, 1000);
+      // Initialize MediaRecorder - CRITICAL FIX
+      if (mediaStreamRef.current) {
+        const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
+          ? 'video/webm;codecs=vp9'
+          : MediaRecorder.isTypeSupported('video/webm')
+            ? 'video/webm'
+            : 'video/mp4';
 
-      stopTimeoutRef.current = setTimeout(() => {
-        stopRecording();
-      }, 600000);
-    } catch (err: any) {
-      setRecording(false);
-      setErrorMsg('Unable to access camera/mic. Please check permissions.');
-      toast.error('Camera/Mic access denied');
+        mediaRecorderRef.current = new MediaRecorder(mediaStreamRef.current, {
+          mimeType,
+          videoBitsPerSecond: 2500000,
+        });
+
+        chunksRef.current = [];
+        isRecordingRef.current = true;
+
+        // Collect video chunks
+        mediaRecorderRef.current.ondataavailable = (event) => {
+          if (event.data.size > 0) {
+            chunksRef.current.push(event.data);
+          }
+        };
+
+        mediaRecorderRef.current.onstart = () => {
+          recordingStartTimeRef.current = Date.now();
+          isRecordingRef.current = true;
+
+          setState({
+            status: 'streaming',
+            message: '🔴 LIVE (0s)',
+            duration: 0,
+          });
+
+          // Update duration every second
+          timerRef.current = setInterval(() => {
+            if (recordingStartTimeRef.current && isRecordingRef.current) {
+              const duration = Math.floor(
+                (Date.now() - recordingStartTimeRef.current) / 1000
+              );
+              setState((prev) => ({
+                ...prev,
+                message: `🔴 LIVE (${duration}s)`,
+                duration,
+              }));
+
+              // Broadcast location updates every 5 seconds
+              if (duration % 5 === 0) {
+                navigator.geolocation.getCurrentPosition((position) => {
+                  const newLoc = {
+                    latitude: position.coords.latitude,
+                    longitude: position.coords.longitude,
+                  };
+                  setLocation(newLoc);
+
+                  // Update location in Supabase
+                  supabase
+                    .from('emergency_alerts')
+                    .update({
+                      lat: newLoc.latitude,
+                      lng: newLoc.longitude,
+                    })
+                    .eq('user_id', user.id)
+                    .order('created_at', { ascending: false })
+                    .limit(1)
+                    .then();
+                });
+              }
+            }
+          }, 1000);
+        };
+
+        mediaRecorderRef.current.onstop = () => {
+          isRecordingRef.current = false;
+          if (timerRef.current) {
+            clearInterval(timerRef.current);
+            timerRef.current = null;
+          }
+        };
+
+        // Start recording
+        mediaRecorderRef.current.start();
+      }
+    } catch (error: any) {
+      setState({
+        status: 'error',
+        message: 'Failed to start live stream',
+        duration: 0,
+        error: error.message,
+      });
+      toast.error(`Failed to start live stream: ${error.message}`);
+      isRecordingRef.current = false;
     }
   };
 
-  const stopRecording = () => {
-    setIsStopping(true);
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+  // Stop live streaming and upload - CRITICAL FIX
+  const stopLiveStream = async () => {
+    if (!mediaRecorderRef.current || !isRecordingRef.current) {
+      toast.error('Recording not active');
+      return;
+    }
+
+    try {
+      setState({
+        status: 'uploading',
+        message: 'Stopping recording and uploading video...',
+        duration: state.duration,
+      });
+
+      isRecordingRef.current = false;
+
+      // Stop the recorder
       mediaRecorderRef.current.stop();
-    }
-    if (stopTimeoutRef.current) {
-      clearTimeout(stopTimeoutRef.current);
-      stopTimeoutRef.current = null;
-    }
-    if (locationIntervalRef.current) {
-      clearInterval(locationIntervalRef.current);
-    }
-    if (timerIntervalRef.current) {
-      clearInterval(timerIntervalRef.current);
+
+      // Wait for the onstop callback to fire
+      await new Promise<void>((resolve) => {
+        const checkInterval = setInterval(() => {
+          if (mediaRecorderRef.current?.state === 'inactive') {
+            clearInterval(checkInterval);
+            resolve();
+          }
+        }, 100);
+
+        // Timeout after 5 seconds
+        setTimeout(() => {
+          clearInterval(checkInterval);
+          resolve();
+        }, 5000);
+      });
+
+      // Combine chunks into blob
+      if (chunksRef.current.length === 0) {
+        throw new Error('No video data recorded');
+      }
+
+      const videoBlob = new Blob(chunksRef.current, { type: 'video/webm' });
+
+      if (videoBlob.size === 0) {
+        throw new Error('Video blob is empty');
+      }
+
+      // Upload to Supabase Storage
+      const fileName = `emergency-${user?.id}-${Date.now()}.webm`;
+      const { error: uploadError } = await supabase.storage
+        .from('videos')
+        .upload(`${fileName}`, videoBlob, {
+          cacheControl: '3600',
+          upsert: false,
+        });
+
+      if (uploadError) {
+        throw uploadError;
+      }
+
+      // Get public URL
+      const { data: urlData } = supabase.storage
+        .from('videos')
+        .getPublicUrl(`${fileName}`);
+
+      // Update alert with video URL
+      await supabase
+        .from('emergency_alerts')
+        .update({
+          video_url: urlData.publicUrl,
+          status: 'video_uploaded',
+        })
+        .eq('user_id', user?.id)
+        .order('created_at', { ascending: false })
+        .limit(1);
+
+      setState({
+        status: 'idle',
+        message: 'Video uploaded. Responders notified.',
+        duration: 0,
+      });
+
+      toast.success('Emergency broadcast complete');
+      chunksRef.current = [];
+      recordingStartTimeRef.current = null;
+      mediaRecorderRef.current = null;
+    } catch (error: any) {
+      setState({
+        status: 'error',
+        message: 'Failed to upload video',
+        duration: 0,
+        error: error.message,
+      });
+      toast.error(`Upload failed: ${error.message}`);
     }
   };
+
+  // Cancel streaming (no save) - CRITICAL FIX
+  const cancelLiveStream = () => {
+    try {
+      isRecordingRef.current = false;
+
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+        mediaRecorderRef.current.stop();
+      }
+
+      chunksRef.current = [];
+      recordingStartTimeRef.current = null;
+      mediaRecorderRef.current = null;
+
+      setState({
+        status: 'idle',
+        message: 'Live stream cancelled',
+        duration: 0,
+      });
+
+      toast.info('Live stream cancelled');
+    } catch (error) {
+      console.error('Error cancelling stream:', error);
+    }
+  };
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      isRecordingRef.current = false;
+
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+      }
+
+      if (mediaStreamRef.current) {
+        mediaStreamRef.current.getTracks().forEach((track) => {
+          track.stop();
+        });
+      }
+
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+        mediaRecorderRef.current.stop();
+      }
+    };
+  }, []);
 
   return (
-    <div className="flex flex-col items-center gap-3">
-      <button
-        onClick={handleClick}
-        disabled={recording || uploading}
-        aria-label="Go Live"
-        className={`
-          w-32 h-32 rounded-full text-white flex items-center justify-center text-xl font-bold border-4 transition-all duration-300 
-          ${recording ? 'bg-red-600 border-red-600 animate-pulse' : ''}
-          ${uploading ? 'bg-blue-600 border-blue-600 animate-pulse' : ''}
-          ${!recording && !uploading ? 'bg-primary border-primary hover:bg-primary/80' : ''}
-          focus:outline-none focus:ring-4 focus:ring-primary/50
-        `}
-      >
-        {recording ? (
-          <div className="flex flex-col items-center gap-1">
-            <VideoIcon className="animate-ping" size={28} />
-            <span className="text-xs">{streamDuration}s</span>
-          </div>
-        ) : uploading ? (
-          <UploadCloud className="animate-spin" size={28} />
-        ) : (
-          'Go Live'
-        )}
-      </button>
-
-      {recording && (
-        <>
+    <div className="w-full max-w-md mx-auto">
+      {/* Video Preview */}
+      {showPreview && mediaStreamRef.current && (
+        <div className="mb-6 rounded-xl overflow-hidden bg-black shadow-lg relative">
           <video
             ref={videoRef}
-            autoPlay
+            className="w-full h-auto bg-black object-cover"
             muted
             playsInline
-            className="w-64 h-40 rounded-lg border-2 border-primary shadow-lg mt-2 object-cover"
-            style={{ background: '#222' }}
+            style={{ display: 'block', width: '100%' }}
           />
-          <div className="flex flex-col items-center gap-2">
-            <div className="flex items-center gap-2 text-sm text-gray-600">
-              <div className="w-2 h-2 bg-red-600 rounded-full animate-pulse" />
-              <span>🔴 LIVE ({streamDuration}s)</span>
+          {state.status === 'streaming' && (
+            <div className="absolute top-4 left-4 bg-red-600 text-white px-3 py-1 rounded-full text-sm font-bold flex items-center gap-2 animate-pulse">
+              <div className="w-2 h-2 bg-white rounded-full animate-pulse" />
+              LIVE
             </div>
-            <button
-              onClick={stopRecording}
-              disabled={isStopping || uploading}
-              className="mt-2 px-6 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-semibold flex items-center gap-2 shadow-lg disabled:opacity-60"
-            >
-              <Square size={18} /> Stop Recording
-            </button>
-          </div>
-        </>
+          )}
+        </div>
       )}
 
-      {errorMsg && (
-        <div className="text-red-500 text-center text-sm whitespace-pre-line">{errorMsg}</div>
-      )}
-      {successMsg && (
-        <div className="text-green-500 text-center text-sm">{successMsg}</div>
-      )}
+      {/* Status Card */}
+      <div className="bg-white rounded-2xl shadow-lg p-6 border border-gray-200 mb-6">
+        <div className="flex items-start gap-3 mb-4">
+          {state.status === 'streaming' && (
+            <AlertCircle className="w-5 h-5 text-red-600 animate-pulse flex-shrink-0" />
+          )}
+          {state.status === 'error' && (
+            <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0" />
+          )}
+          {state.status === 'requesting-permission' && (
+            <Camera className="w-5 h-5 text-blue-600 animate-spin flex-shrink-0" />
+          )}
+          {state.status === 'uploading' && (
+            <Wifi className="w-5 h-5 text-blue-600 animate-pulse flex-shrink-0" />
+          )}
+          {(state.status === 'idle' ||
+            (state.status !== 'streaming' &&
+              state.status !== 'error' &&
+              state.status !== 'requesting-permission' &&
+              state.status !== 'uploading')) && (
+            <Wifi className="w-5 h-5 text-blue-600 flex-shrink-0" />
+          )}
+          <div className="flex-1">
+            <h3 className="font-bold text-gray-900">{state.message}</h3>
+            {location && (
+              <p className="text-xs text-gray-600 mt-1">
+                📍 {location.latitude.toFixed(4)}, {location.longitude.toFixed(4)}
+              </p>
+            )}
+            {state.error && (
+              <p className="text-xs text-red-600 mt-1">{state.error}</p>
+            )}
+          </div>
+        </div>
+
+        {/* Buttons */}
+        <div className="space-y-3">
+          {state.status === 'idle' && !showPreview && (
+            <button
+              onClick={requestMediaPermissions}
+              className="w-full px-4 py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition flex items-center justify-center gap-2"
+            >
+              <Camera className="w-4 h-4" />
+              Enable Camera
+            </button>
+          )}
+
+          {state.status === 'idle' && showPreview && (
+            <button
+              onClick={startLiveStream}
+              className="w-full px-4 py-3 bg-red-600 text-white rounded-lg font-bold hover:bg-red-700 transition flex items-center justify-center gap-2 text-lg"
+            >
+              <AlertCircle className="w-5 h-5" />
+              Go Live
+            </button>
+          )}
+
+          {state.status === 'streaming' && (
+            <>
+              <button
+                onClick={stopLiveStream}
+                className="w-full px-4 py-3 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 transition"
+              >
+                Stop & Upload
+              </button>
+              <button
+                onClick={cancelLiveStream}
+                className="w-full px-4 py-3 bg-gray-300 text-gray-800 rounded-lg font-semibold hover:bg-gray-400 transition flex items-center justify-center gap-2"
+              >
+                <X className="w-4 h-4" />
+                Cancel
+              </button>
+            </>
+          )}
+
+          {state.status === 'uploading' && (
+            <div className="px-4 py-3 bg-gray-100 text-gray-800 rounded-lg text-center font-semibold">
+              ⏳ Uploading... Please wait
+            </div>
+          )}
+
+          {state.status === 'error' && (
+            <button
+              onClick={requestMediaPermissions}
+              className="w-full px-4 py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition"
+            >
+              Try Again
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Safety Info */}
+      <p className="text-xs text-gray-500 text-center">
+        🔒 Your video is encrypted and only shared with verified nearby responders. Stop at any time.
+      </p>
     </div>
   );
 }
