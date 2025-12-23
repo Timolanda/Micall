@@ -13,7 +13,11 @@ interface GoLiveState {
   error?: string;
 }
 
-export default function GoLiveButton() {
+interface GoLiveButtonProps {
+  onStart?: () => void;
+}
+
+export default function GoLiveButton({ onStart }: GoLiveButtonProps = {}) {
   const { user } = useAuth();
   const [state, setState] = useState<GoLiveState>({
     status: 'idle',
@@ -193,6 +197,11 @@ export default function GoLiveButton() {
             duration: 0,
           });
 
+          // Call onStart callback if provided
+          if (onStart) {
+            onStart();
+          }
+
           // Update duration every second
           timerRef.current = setInterval(() => {
             if (recordingStartTimeRef.current && isRecordingRef.current) {
@@ -258,7 +267,7 @@ export default function GoLiveButton() {
       isRecordingRef.current = false;
       currentAlertIdRef.current = null;
     }
-  }, [user]);
+  }, [user, onStart]);
 
   // Stop live streaming and upload
   const stopLiveStream = useCallback(async () => {
