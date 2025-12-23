@@ -26,6 +26,7 @@ export default function GoLiveButton({ onStart }: GoLiveButtonProps = {}) {
   });
   const [location, setLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [showPreview, setShowPreview] = useState(false);
+  const [cameraFacing, setCameraFacing] = useState<'user' | 'environment'>('user');
 
   // Refs
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -77,7 +78,7 @@ export default function GoLiveButton({ onStart }: GoLiveButtonProps = {}) {
         video: {
           width: { ideal: 1280 },
           height: { ideal: 720 },
-          facingMode: 'user',
+          facingMode: cameraFacing,
         },
         audio: {
           echoCancellation: true,
@@ -89,14 +90,28 @@ export default function GoLiveButton({ onStart }: GoLiveButtonProps = {}) {
       mediaStreamRef.current = stream;
       setShowPreview(true);
 
-      // Display stream in video element
+      // Display stream in video element with enhanced loading
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        videoRef.current.onloadedmetadata = () => {
+        
+        // Handle both onloadedmetadata and oncanplay for better compatibility
+        const playVideo = () => {
           videoRef.current?.play().catch((e) => {
             console.error('Error playing video:', e);
           });
         };
+
+        videoRef.current.onloadedmetadata = playVideo;
+        videoRef.current.oncanplay = playVideo;
+
+        // If video still doesn't load, try playing after a delay
+        setTimeout(() => {
+          if (videoRef.current && videoRef.current.paused) {
+            videoRef.current.play().catch((e) => {
+              console.error('Delayed play failed:', e);
+            });
+          }
+        }, 500);
       }
 
       setState({
@@ -116,7 +131,64 @@ export default function GoLiveButton({ onStart }: GoLiveButtonProps = {}) {
       toast.error(`Camera access denied: ${error.message}`);
       setShowPreview(false);
     }
-  }, []);
+  }, [cameraFacing]);
+
+  // Switch between front and back camera
+  const switchCamera = useCallback(async () => {
+    try {
+      // Stop current stream
+      if (mediaStreamRef.current) {
+        mediaStreamRef.current.getTracks().forEach((track) => {
+          track.stop();
+        });
+      }
+
+      // Toggle camera facing mode
+      const newFacing = cameraFacing === 'user' ? 'environment' : 'user';
+      setCameraFacing(newFacing);
+
+      // Request new stream with new camera
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          facingMode: newFacing,
+        },
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
+
+      mediaStreamRef.current = stream;
+
+      // Display new stream
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        const playVideo = () => {
+          videoRef.current?.play().catch((e) => {
+            console.error('Error playing video:', e);
+          });
+        };
+
+        videoRef.current.onloadedmetadata = playVideo;
+        videoRef.current.oncanplay = playVideo;
+
+        setTimeout(() => {
+          if (videoRef.current && videoRef.current.paused) {
+            videoRef.current.play().catch((e) => {
+              console.error('Delayed play failed:', e);
+            });
+          }
+        }, 500);
+      }
+
+      toast.success(`Switched to ${newFacing === 'user' ? 'front' : 'back'} camera`);
+    } catch (error: any) {
+      toast.error(`Failed to switch camera: ${error.message}`);
+    }
+  }, [cameraFacing]);
 
   // Start live streaming
   const startLiveStream = useCallback(async () => {
@@ -343,15 +415,46 @@ export default function GoLiveButton({ onStart }: GoLiveButtonProps = {}) {
         .from('videos')
         .getPublicUrl(`${fileName}`);
 
-      // Update alert with video URL
+      // Update alert with video URL with retry logic
       if (currentAlertIdRef.current) {
-        await supabase
-          .from('emergency_alerts')
-          .update({
-            video_url: urlData.publicUrl,
-            status: 'video_uploaded',
-          })
-          .eq('id', currentAlertIdRef.current);
+        let updateSuccess = false;
+        let lastError: any = null;
+
+        // Retry up to 3 times for schema cache issues
+        for (let i = 0; i < 3; i++) {
+          try {
+            const { error: updateError } = await supabase
+              .from('emergency_alerts')
+              .update({
+                video_url: urlData.publicUrl,
+                status: 'video_uploaded',
+              })
+              .eq('id', currentAlertIdRef.current);
+
+            if (updateError) {
+              lastError = updateError;
+              if (i < 2) {
+                // Wait before retrying
+                await new Promise((resolve) => setTimeout(resolve, 1000));
+                continue;
+              }
+            } else {
+              updateSuccess = true;
+              break;
+            }
+          } catch (err) {
+            lastError = err;
+            if (i < 2) {
+              await new Promise((resolve) => setTimeout(resolve, 1000));
+              continue;
+            }
+          }
+        }
+
+        if (!updateSuccess && lastError) {
+          console.warn('Failed to update video URL after retries:', lastError);
+          toast.warning('Video uploaded but metadata update delayed. It will sync shortly.');
+        }
       }
 
       setState({
@@ -454,8 +557,17 @@ export default function GoLiveButton({ onStart }: GoLiveButtonProps = {}) {
             className="w-full h-auto bg-black object-cover"
             muted
             playsInline
+            autoPlay
             style={{ display: 'block', width: '100%' }}
           />
+          {/* Camera Switch Button */}
+          <button
+            onClick={switchCamera}
+            className="absolute bottom-4 right-4 bg-black/70 hover:bg-black/90 text-white p-2 rounded-full transition"
+            title="Switch camera"
+          >
+            <Camera className="w-5 h-5" />
+          </button>
           {state.status === 'streaming' && (
             <div className="absolute top-4 left-4 bg-red-600 text-white px-3 py-1 rounded-full text-sm font-bold flex items-center gap-2 animate-pulse">
               <div className="w-2 h-2 bg-white rounded-full animate-pulse" />
