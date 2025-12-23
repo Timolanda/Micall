@@ -7,24 +7,25 @@ import { useProfile } from '../hooks/useProfile';
 import { toast } from 'sonner';
 
 export default function GoLiveButton({ onStart }: { onStart: () => void }) {
-  const [countdown, setCountdown] = useState<number | null>(null);
   const [recording, setRecording] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [alertId, setAlertId] = useState<number | null>(null);
   const [isStopping, setIsStopping] = useState(false);
+  const [streamDuration, setStreamDuration] = useState(0);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const videoChunks = useRef<Blob[]>([]);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const stopTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const locationIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const recordingStartTimeRef = useRef<number | null>(null);
 
-  // Get user info
   const { user } = useAuth();
   const { profile } = useProfile(user?.id || null);
 
-  // Get user location
   const getLocation = async (): Promise<{ lat: number; lng: number } | null> => {
     return new Promise((resolve) => {
       if (!navigator.geolocation) return resolve(null);
@@ -45,31 +46,28 @@ export default function GoLiveButton({ onStart }: { onStart: () => void }) {
     startWorkflow();
   };
 
-  // Attach stream to video element when both are ready
   useEffect(() => {
     if (recording && videoRef.current && streamRef.current) {
       videoRef.current.srcObject = streamRef.current;
       videoRef.current.play();
     }
-    // Clean up srcObject when not recording
     if (!recording && videoRef.current) {
       videoRef.current.srcObject = null;
     }
   }, [recording]);
 
-  // Full workflow: alert, then record
   const startWorkflow = async () => {
     onStart?.();
     setRecording(true);
     setIsStopping(false);
+    setStreamDuration(0);
+    recordingStartTimeRef.current = Date.now();
 
-    // 1. Get location
     const location = await getLocation();
     if (!location) {
       toast.warning('Location unavailable. Sharing last known coordinates only.');
     }
 
-    // 2. Create emergency alert immediately
     let alertIdCreated: number | null = null;
     if (user?.id) {
       const { data, error } = await supabase.from('emergency_alerts').insert({
@@ -91,7 +89,6 @@ export default function GoLiveButton({ onStart }: { onStart: () => void }) {
       setAlertId(alertIdCreated);
     }
 
-    // 3. Start camera and recording
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
       streamRef.current = stream;
@@ -108,13 +105,19 @@ export default function GoLiveButton({ onStart }: { onStart: () => void }) {
         const blob = new Blob(videoChunks.current, { type: 'video/webm' });
         const file = new File([blob], `live-${Date.now()}.webm`, { type: 'video/webm' });
 
-        // Stop the video preview and release the camera
         if (videoRef.current) {
           videoRef.current.srcObject = null;
         }
         if (streamRef.current) {
           streamRef.current.getTracks().forEach((track) => track.stop());
           streamRef.current = null;
+        }
+
+        if (locationIntervalRef.current) {
+          clearInterval(locationIntervalRef.current);
+        }
+        if (timerIntervalRef.current) {
+          clearInterval(timerIntervalRef.current);
         }
 
         try {
@@ -128,7 +131,6 @@ export default function GoLiveButton({ onStart }: { onStart: () => void }) {
             return;
           }
 
-          // 4. Update emergency alert with video URL
           if (alertIdCreated) {
             const { error: updateError } = await supabase.from('emergency_alerts').update({
               video_url: data?.path,
@@ -153,18 +155,42 @@ export default function GoLiveButton({ onStart }: { onStart: () => void }) {
 
       mediaRecorderRef.current.start();
 
-      // Set a max recording timeout (e.g., 10s)
+      if (alertIdCreated) {
+        locationIntervalRef.current = setInterval(async () => {
+          const newLocation = await getLocation();
+          if (newLocation && alertIdCreated) {
+            try {
+              await supabase
+                .from('emergency_alerts')
+                .update({
+                  lat: newLocation.lat,
+                  lng: newLocation.lng,
+                })
+                .eq('id', alertIdCreated);
+            } catch (err) {
+              console.error('Error updating location:', err);
+            }
+          }
+        }, 5000);
+      }
+
+      timerIntervalRef.current = setInterval(() => {
+        if (recordingStartTimeRef.current) {
+          const duration = Math.floor((Date.now() - recordingStartTimeRef.current) / 1000);
+          setStreamDuration(duration);
+        }
+      }, 1000);
+
       stopTimeoutRef.current = setTimeout(() => {
         stopRecording();
-      }, 10000);
-    } catch (err) {
+      }, 600000);
+    } catch (err: any) {
       setRecording(false);
       setErrorMsg('Unable to access camera/mic. Please check permissions.');
       toast.error('Camera/Mic access denied');
     }
   };
 
-  // Stop recording handler
   const stopRecording = () => {
     setIsStopping(true);
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
@@ -173,6 +199,12 @@ export default function GoLiveButton({ onStart }: { onStart: () => void }) {
     if (stopTimeoutRef.current) {
       clearTimeout(stopTimeoutRef.current);
       stopTimeoutRef.current = null;
+    }
+    if (locationIntervalRef.current) {
+      clearInterval(locationIntervalRef.current);
+    }
+    if (timerIntervalRef.current) {
+      clearInterval(timerIntervalRef.current);
     }
   };
 
@@ -191,7 +223,10 @@ export default function GoLiveButton({ onStart }: { onStart: () => void }) {
         `}
       >
         {recording ? (
-          <VideoIcon className="animate-ping" size={28} />
+          <div className="flex flex-col items-center gap-1">
+            <VideoIcon className="animate-ping" size={28} />
+            <span className="text-xs">{streamDuration}s</span>
+          </div>
         ) : uploading ? (
           <UploadCloud className="animate-spin" size={28} />
         ) : (
@@ -199,7 +234,6 @@ export default function GoLiveButton({ onStart }: { onStart: () => void }) {
         )}
       </button>
 
-      {/* Camera preview while recording */}
       {recording && (
         <>
           <video
@@ -210,13 +244,19 @@ export default function GoLiveButton({ onStart }: { onStart: () => void }) {
             className="w-64 h-40 rounded-lg border-2 border-primary shadow-lg mt-2 object-cover"
             style={{ background: '#222' }}
           />
-          <button
-            onClick={stopRecording}
-            disabled={isStopping || uploading}
-            className="mt-3 px-6 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-semibold flex items-center gap-2 shadow-lg disabled:opacity-60"
-          >
-            <Square size={18} /> Stop Recording
-          </button>
+          <div className="flex flex-col items-center gap-2">
+            <div className="flex items-center gap-2 text-sm text-gray-600">
+              <div className="w-2 h-2 bg-red-600 rounded-full animate-pulse" />
+              <span>🔴 LIVE ({streamDuration}s)</span>
+            </div>
+            <button
+              onClick={stopRecording}
+              disabled={isStopping || uploading}
+              className="mt-2 px-6 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-semibold flex items-center gap-2 shadow-lg disabled:opacity-60"
+            >
+              <Square size={18} /> Stop Recording
+            </button>
+          </div>
         </>
       )}
 
@@ -228,4 +268,4 @@ export default function GoLiveButton({ onStart }: { onStart: () => void }) {
       )}
     </div>
   );
-} 
+}

@@ -47,6 +47,17 @@ create table responders (
   updated_at timestamp with time zone default timezone('utc'::text, now())
 );
 
+-- User locations (for broadcasting during emergencies)
+create table user_locations (
+  id bigserial primary key,
+  user_id uuid references profiles(id) on delete cascade,
+  latitude double precision not null,
+  longitude double precision not null,
+  accuracy double precision,
+  updated_at timestamp with time zone default timezone('utc'::text, now()),
+  unique(user_id)
+);
+
 -- Notifications for in-app alerts
 create table notifications (
   id bigserial primary key,
@@ -92,6 +103,8 @@ create index idx_contacts_user_id on contacts(user_id);
 create index idx_emergency_alerts_user_id on emergency_alerts(user_id);
 create index idx_emergency_alerts_created_at on emergency_alerts(created_at desc);
 create index idx_responders_location on responders using gist(location);
+create index idx_user_locations_user_id on user_locations(user_id);
+create index idx_user_locations_updated_at on user_locations(updated_at desc);
 create index idx_notifications_user_id on notifications(user_id);
 create index idx_notifications_read on notifications(read);
 
@@ -166,6 +179,7 @@ alter table profiles enable row level security;
 alter table contacts enable row level security;
 alter table emergency_alerts enable row level security;
 alter table responders enable row level security;
+alter table user_locations enable row level security;
 alter table notifications enable row level security;
 alter table history enable row level security;
 alter table subscriptions enable row level security;
@@ -206,6 +220,21 @@ create policy "Responders can update own location" on responders
 
 create policy "Anyone can view available responders" on responders
   for select using (available = true);
+
+-- User locations policies (for emergency broadcasting)
+create policy "Users can manage own location" on user_locations
+  for all using (auth.uid() = user_id);
+
+create policy "Responders can view active locations" on user_locations
+  for select using (
+    exists (
+      select 1
+      from profiles p
+      where p.id = auth.uid()
+        and p.role = 'responder'
+    )
+    or auth.uid() = user_id
+  );
 
 -- Notifications policies
 create policy "Users can view own notifications" on notifications
