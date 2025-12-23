@@ -22,15 +22,24 @@ export default function SettingsPage() {
   const { profile, updateProfile, loading: profileLoading } = useProfile(userId);
   const [notifications, setNotifications] = useState(profile?.notifications_enabled ?? true);
   const [locationSharing, setLocationSharing] = useState(profile?.location_sharing ?? true);
-  const [darkMode, setDarkMode] = useState(true);
+  const [darkMode, setDarkMode] = useState(profile?.dark_mode_enabled ?? true);
   const [loading, setLoading] = useState(false);
   const [notifLoading, setNotifLoading] = useState(false);
   const [locLoading, setLocLoading] = useState(false);
+  const [darkLoading, setDarkLoading] = useState(false);
 
   // Sync state with profile
   useEffect(() => {
     setNotifications(profile?.notifications_enabled ?? true);
     setLocationSharing(profile?.location_sharing ?? true);
+    setDarkMode(profile?.dark_mode_enabled ?? true);
+    
+    // Apply dark mode to document
+    if (profile?.dark_mode_enabled) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
   }, [profile]);
 
   const handleToggleNotifications = async () => {
@@ -54,6 +63,23 @@ export default function SettingsPage() {
     await updateProfile({ location_sharing: !locationSharing });
     setLocLoading(false);
     // Optionally: trigger a callback/side effect in the app to enable/disable geolocation
+  };
+
+  const handleToggleDarkMode = async () => {
+    setDarkLoading(true);
+    const newDarkMode = !darkMode;
+    setDarkMode(newDarkMode);
+    
+    // Apply dark mode to document immediately for smooth transition
+    if (newDarkMode) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+    
+    // Save to Supabase
+    await updateProfile({ dark_mode_enabled: newDarkMode });
+    setDarkLoading(false);
   };
 
   const handleLogout = async () => {
@@ -111,8 +137,9 @@ export default function SettingsPage() {
       description: 'Use dark theme for better visibility',
       action: (
         <button
-          onClick={() => setDarkMode(!darkMode)}
+          onClick={handleToggleDarkMode}
           className="flex items-center"
+          disabled={darkLoading || profileLoading}
         >
           {darkMode ? (
             <ToggleRight size={24} className="text-primary" />

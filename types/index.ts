@@ -48,6 +48,7 @@ export interface Profile {
   created_at?: string;
   notifications_enabled?: boolean;
   location_sharing?: boolean;
+  dark_mode_enabled?: boolean;
   // Add any other fields from your 'profiles' table
 }
 
