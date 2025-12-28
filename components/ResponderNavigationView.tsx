@@ -74,6 +74,12 @@ export default function ResponderNavigationView({
 
     const initMap = async () => {
       try {
+        // Ensure mapRef exists before initializing
+        if (!mapRef.current) {
+          console.error('Map container not found');
+          return;
+        }
+
         const L = await import('leaflet');
         leafletRef.current = L;
 
