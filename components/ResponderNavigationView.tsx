@@ -1,12 +1,11 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { LatLngExpression, Icon, latLng } from 'leaflet';
-import L from 'leaflet';
 import { Phone, Navigation, MapPin, Clock, CheckCircle2, X, AlertCircle } from 'lucide-react';
 import { supabase } from '@/utils/supabaseClient';
 import { toast } from 'sonner';
 import { getNavigationInfo } from '@/utils/navigationUtils';
+import 'leaflet/dist/leaflet.css';
 
 interface AlertData {
   id: number;
@@ -27,23 +26,6 @@ interface ResponderNavProps {
   onStatusChange?: (status: 'en_route' | 'on_scene' | 'complete') => void;
 }
 
-// Custom icons
-const victimIcon = new Icon({
-  iconUrl:
-    'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%23dc2626"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4" fill="%23fff"/></svg>',
-  iconSize: [40, 40],
-  iconAnchor: [20, 20],
-  popupAnchor: [0, -20],
-});
-
-const responderIcon = new Icon({
-  iconUrl:
-    'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%2322c55e"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z"/></svg>',
-  iconSize: [40, 40],
-  iconAnchor: [20, 20],
-  popupAnchor: [0, -20],
-});
-
 export default function ResponderNavigationView({
   alert,
   responderLat,
@@ -53,41 +35,81 @@ export default function ResponderNavigationView({
 }: ResponderNavProps) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<any>(null);
+  const leafletRef = useRef<any>(null);
   const [status, setStatus] = useState<'en_route' | 'on_scene' | 'complete'>('en_route');
   const [navInfo, setNavInfo] = useState(
     getNavigationInfo(responderLat, responderLng, alert.lat, alert.lng)
   );
+  const [isClient, setIsClient] = useState(false);
+
+  // Ensure we're on client side
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
+
+  // Create icons function
+  const createIcons = (L: any) => {
+    const victimIcon = new L.Icon({
+      iconUrl:
+        'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%23dc2626"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4" fill="%23fff"/></svg>',
+      iconSize: [40, 40],
+      iconAnchor: [20, 20],
+      popupAnchor: [0, -20],
+    });
+
+    const responderIcon = new L.Icon({
+      iconUrl:
+        'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%2322c55e"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z"/></svg>',
+      iconSize: [40, 40],
+      iconAnchor: [20, 20],
+      popupAnchor: [0, -20],
+    });
+
+    return { victimIcon, responderIcon };
+  };
 
   // Initialize map
   useEffect(() => {
-    if (!mapRef.current || mapInstanceRef.current) return;
+    if (!isClient || !mapRef.current || mapInstanceRef.current) return;
 
-    const responderCoords = latLng(responderLat, responderLng);
+    const initMap = async () => {
+      try {
+        const L = await import('leaflet');
+        leafletRef.current = L;
 
-    mapInstanceRef.current = L.map(mapRef.current, {
-      center: responderCoords,
-      zoom: 15,
-      zoomControl: true,
-      attributionControl: false,
-    });
+        const { victimIcon, responderIcon } = createIcons(L);
+        const responderCoords = L.latLng(responderLat, responderLng);
 
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      minZoom: 10,
-      maxZoom: 18,
-      attribution: '© OpenStreetMap contributors',
-    }).addTo(mapInstanceRef.current);
+        mapInstanceRef.current = L.map(mapRef.current, {
+          center: responderCoords,
+          zoom: 15,
+          zoomControl: true,
+          attributionControl: false,
+        });
 
-    // Add victim marker
-    L.marker(latLng(alert.lat, alert.lng), { icon: victimIcon })
-      .bindPopup(
-        `<div class="text-sm"><p class="font-bold">Emergency Location</p><p class="text-red-600">${alert.message}</p></div>`
-      )
-      .addTo(mapInstanceRef.current);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          minZoom: 10,
+          maxZoom: 18,
+          attribution: '© OpenStreetMap contributors',
+        }).addTo(mapInstanceRef.current);
 
-    // Add responder marker
-    L.marker(responderCoords, { icon: responderIcon })
-      .bindPopup('<div class="text-sm"><p class="font-bold">Your Location</p></div>')
-      .addTo(mapInstanceRef.current);
+        // Add victim marker
+        L.marker(L.latLng(alert.lat, alert.lng), { icon: victimIcon })
+          .bindPopup(
+            `<div class="text-sm"><p class="font-bold">Emergency Location</p><p class="text-red-600">${alert.message}</p></div>`
+          )
+          .addTo(mapInstanceRef.current);
+
+        // Add responder marker
+        L.marker(responderCoords, { icon: responderIcon })
+          .bindPopup('<div class="text-sm"><p class="font-bold">Your Location</p></div>')
+          .addTo(mapInstanceRef.current);
+      } catch (error) {
+        console.error('Error initializing map:', error);
+      }
+    };
+
+    initMap();
 
     return () => {
       if (mapInstanceRef.current) {
@@ -95,7 +117,7 @@ export default function ResponderNavigationView({
         mapInstanceRef.current = null;
       }
     };
-  }, [alert.lat, alert.lng, alert.message, responderLat, responderLng]);
+  }, [isClient, alert.lat, alert.lng, alert.message, responderLat, responderLng]);
 
   // Update navigation info and map
   useEffect(() => {
@@ -103,8 +125,8 @@ export default function ResponderNavigationView({
     setNavInfo(newNavInfo);
 
     // Update responder marker position
-    if (mapInstanceRef.current) {
-      const responderCoords = latLng(responderLat, responderLng);
+    if (mapInstanceRef.current && leafletRef.current) {
+      const responderCoords = leafletRef.current.latLng(responderLat, responderLng);
       mapInstanceRef.current.setView(responderCoords, 15);
     }
   }, [responderLat, responderLng, alert.lat, alert.lng]);

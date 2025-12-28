@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { supabase } from '../utils/supabaseClient';
+import 'leaflet/dist/leaflet.css';
 
 interface Alert {
   id: number;

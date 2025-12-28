@@ -73,17 +73,21 @@ export default function LivePage() {
 
     fetchAlerts();
 
-    // Subscribe to real-time changes
-    const subscription = supabase
-      .from('emergency_alerts')
-      .on('*', (payload: any) => {
+    // Subscribe to real-time changes using modern Supabase API
+    const channel = supabase
+      .channel('emergency-alerts')
+      .on('postgres_changes', { 
+        event: '*', 
+        schema: 'public', 
+        table: 'emergency_alerts' 
+      }, (payload: any) => {
         // Refetch alerts when there are changes
         fetchAlerts();
       })
       .subscribe();
 
     return () => {
-      subscription.unsubscribe();
+      channel.unsubscribe();
     };
   }, [user]);
 
