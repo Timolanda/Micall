@@ -10,7 +10,8 @@ import ResponderLocationTracker from '@/components/ResponderLocationTracker';
 import AlertFilterSystem from '@/components/AlertFilterSystem';
 import ResponderNavigationView from '@/components/ResponderNavigationView';
 import ResponseTimer from '@/components/ResponseTimer';
-import { MapPin, List, Map as MapIcon, Navigation, Settings } from 'lucide-react';
+import LiveVideoPlayer from '@/components/LiveVideoPlayer';
+import { MapPin, List, Map as MapIcon, Navigation, Settings, X } from 'lucide-react';
 import Link from 'next/link';
 
 interface Alert {
@@ -36,7 +37,9 @@ export default function LivePage() {
   const [viewMode, setViewMode] = useState<'map' | 'list'>('map');
   const [selectedAlert, setSelectedAlert] = useState<Alert | null>(null);
   const [showNavigation, setShowNavigation] = useState(false);
+  const [showVideoModal, setShowVideoModal] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [elapsedTime, setElapsedTime] = useState(0);
 
   // Redirect if not authenticated
   useEffect(() => {
@@ -83,6 +86,23 @@ export default function LivePage() {
       subscription.unsubscribe();
     };
   }, [user]);
+
+  // Update elapsed time for selected alert
+  useEffect(() => {
+    if (!selectedAlert) {
+      setElapsedTime(0);
+      return;
+    }
+
+    const interval = setInterval(() => {
+      const created = new Date(selectedAlert.created_at).getTime();
+      const now = new Date().getTime();
+      const elapsed = Math.floor((now - created) / 1000);
+      setElapsedTime(elapsed);
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [selectedAlert]);
 
   // Handle location updates from background tracker
   const handleLocationUpdate = (lat: number, lng: number) => {
@@ -177,6 +197,30 @@ export default function LivePage() {
         >
           ← Back
         </button>
+
+        {/* Video Modal */}
+        {showVideoModal && selectedAlert && (
+          <div className="fixed inset-0 bg-black/80 z-40 flex items-center justify-center p-4">
+            <div className="relative w-full max-w-2xl bg-black rounded-lg overflow-hidden shadow-2xl">
+              <button
+                onClick={() => setShowVideoModal(false)}
+                className="absolute top-4 right-4 z-50 bg-red-600 hover:bg-red-700 text-white rounded-full p-2 transition"
+                title="Close video"
+              >
+                <X className="w-5 h-5" />
+              </button>
+              
+              <LiveVideoPlayer
+                alertId={selectedAlert.id}
+                videoUrl={selectedAlert.video_url}
+                isLive={selectedAlert.status === 'active'}
+                userLocation={{ latitude: selectedAlert.lat, longitude: selectedAlert.lng }}
+                elapsedTime={elapsedTime}
+                responderCount={0}
+              />
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -275,29 +319,49 @@ export default function LivePage() {
                   );
 
                   return (
-                    <button
+                    <div
                       key={alert.id}
-                      onClick={() => handleSelectAlert(alert)}
-                      className="w-full text-left p-3 bg-gradient-to-r from-red-50 to-orange-50 hover:from-red-100 hover:to-orange-100 rounded-lg border-l-4 border-red-600 transition hover:shadow-md"
+                      className="w-full p-3 bg-gradient-to-r from-red-50 to-orange-50 rounded-lg border-l-4 border-red-600 transition hover:shadow-md group"
                     >
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          <p className="font-semibold text-gray-900 text-sm">{alert.type}</p>
-                          <p className="text-xs text-gray-600 mt-1 line-clamp-1">
-                            {alert.message}
-                          </p>
+                      <button
+                        onClick={() => handleSelectAlert(alert)}
+                        className="w-full text-left"
+                      >
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            <p className="font-semibold text-gray-900 text-sm">{alert.type}</p>
+                            <p className="text-xs text-gray-600 mt-1 line-clamp-1">
+                              {alert.message}
+                            </p>
+                          </div>
+                          <span className="text-xs font-bold text-blue-600 ml-2">
+                            {distance.toFixed(1)} km
+                          </span>
                         </div>
-                        <span className="text-xs font-bold text-blue-600 ml-2">
-                          {distance.toFixed(1)} km
-                        </span>
+                        <p className="text-xs text-gray-500 mt-2 flex items-center gap-1">
+                          ⏱️ <ResponseTimer alertCreatedAt={alert.created_at} />
+                        </p>
+                      </button>
+                      <div className="flex gap-2 mt-2">
+                        <button
+                          onClick={() => handleSelectAlert(alert)}
+                          className="flex-1 text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 transition font-semibold"
+                        >
+                          📍 Navigate
+                        </button>
+                        {alert.video_url && (
+                          <button
+                            onClick={() => {
+                              setSelectedAlert(alert);
+                              setShowVideoModal(true);
+                            }}
+                            className="flex-1 text-xs px-2 py-1 bg-purple-600 text-white rounded hover:bg-purple-700 transition font-semibold"
+                          >
+                            📹 Watch
+                          </button>
+                        )}
                       </div>
-                      <p className="text-xs text-gray-500 mt-2 flex items-center gap-1">
-                        ⏱️ <ResponseTimer alertCreatedAt={alert.created_at} />
-                      </p>
-                      <p className="text-xs text-blue-600 font-semibold mt-2">
-                        📍 Navigate →
-                      </p>
-                    </button>
+                    </div>
                   );
                 })}
               </div>
@@ -324,7 +388,12 @@ export default function LivePage() {
                   </div>
                 </div>
               ) : filteredAlerts.length > 0 ? (
-                <ResponderMap />
+                <ResponderMap 
+                  alerts={filteredAlerts}
+                  responderLat={responderLat}
+                  responderLng={responderLng}
+                  onAlertClick={handleSelectAlert}
+                />
               ) : (
                 <div className="w-full h-full flex items-center justify-center bg-gray-50">
                   <div className="text-center">

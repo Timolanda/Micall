@@ -37,15 +37,16 @@ export default function ResponderLocationTracker({ onLocationUpdate }: Responder
         lastUpdateRef.current = now;
 
         try {
-          // Update responder location in database
+          // Upsert responder location (insert if not exists, update if exists)
           await supabase
             .from('responders')
-            .update({
+            .upsert({
+              id: user.id,
               lat: latitude,
               lng: longitude,
               updated_at: new Date().toISOString(),
-            })
-            .eq('id', user.id);
+              available: true,
+            }, { onConflict: 'id' });
 
           // Callback for parent component
           if (onLocationUpdate) {
