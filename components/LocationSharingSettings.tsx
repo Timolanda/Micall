@@ -205,7 +205,7 @@ export default function LocationSharingSettings({
           <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
             <p className="text-sm text-purple-900 font-medium">📍 Privacy:</p>
             <p className="text-sm text-purple-800 mt-2">
-              Only contacts marked with "Can See Location" will be able to track your location
+              Only contacts marked with &quot;Can See Location&quot; will be able to track your location
               when location sharing is enabled.
             </p>
           </div>

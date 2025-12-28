@@ -310,7 +310,7 @@ export default function ResponderMap({ alerts = [], onAlertClick, responderLat, 
     };
 
     updateMap();
-  }, [userLocation, alerts, onAlertClick]);
+  }, [userLocation, alerts, onAlertClick, isMapLoaded]);
 
   if (mapError) {
     return (
