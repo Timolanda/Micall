@@ -16,7 +16,6 @@ import { toast } from 'sonner';
 
 export default function HomePage() {
   const [loading, setLoading] = useState(false);
-  const [nearbyResponders, setNearbyResponders] = useState<number>(0);
   const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
   const [emergencyActive, setEmergencyActive] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
@@ -58,38 +57,6 @@ export default function HomePage() {
     
     return () => navigator.geolocation.clearWatch(watchId);
   }, [isAuthenticated]);
-
-  // Fetch nearby responders count - only if authenticated and has location
-  useEffect(() => {
-    if (!isAuthenticated || !userLocation) return;
-
-    const fetchResponders = async () => {
-      try {
-        const { data, error } = await supabase.rpc('get_nearby_responders', {
-          lat: userLocation[0],
-          lng: userLocation[1],
-          radius_km: 1
-        });
-        
-        if (!error && data) {
-          setNearbyResponders(data.length);
-        }
-      } catch (error) {
-        console.error('Error fetching responders:', error);
-      }
-    };
-
-    fetchResponders();
-    
-    // Set up real-time subscription
-    const channel = supabase.channel('responders-count')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'responders' }, fetchResponders)
-      .subscribe();
-
-    return () => {
-      channel.unsubscribe();
-    };
-  }, [isAuthenticated, userLocation]);
 
   const handleGoLive = async () => {
     setLoading(true);
@@ -332,9 +299,9 @@ export default function HomePage() {
                   <Users size={32} className="text-green-400" />
                 </div>
               </div>
-              <h3 className="text-lg font-semibold mb-2">Nearby Responders</h3>
-              <p className="text-2xl font-bold text-green-400 mb-1">{nearbyResponders}</p>
-              <p className="text-sm text-gray-400">Available in your area</p>
+              <h3 className="text-lg font-semibold mb-2">Responders Ready</h3>
+              <p className="text-2xl font-bold text-green-400 mb-1">✓</p>
+              <p className="text-sm text-gray-400">Monitoring your area</p>
             </div>
           </div>
         </div>

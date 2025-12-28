@@ -1,18 +1,21 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import dynamic from 'next/dynamic';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/utils/supabaseClient';
 import { useRouter } from 'next/navigation';
-import ResponderMap from '@/components/ResponderMap';
-import EmergencyNotification from '@/components/EmergencyNotification';
-import ResponderLocationTracker from '@/components/ResponderLocationTracker';
 import AlertFilterSystem from '@/components/AlertFilterSystem';
-import ResponderNavigationView from '@/components/ResponderNavigationView';
-import ResponseTimer from '@/components/ResponseTimer';
-import LiveVideoPlayer from '@/components/LiveVideoPlayer';
 import { MapPin, List, Map as MapIcon, Navigation, Settings, X } from 'lucide-react';
 import Link from 'next/link';
+
+// Dynamic imports to prevent hydration issues
+const ResponderMap = dynamic(() => import('@/components/ResponderMap'), { ssr: false });
+const EmergencyNotification = dynamic(() => import('@/components/EmergencyNotification'), { ssr: false });
+const ResponderLocationTracker = dynamic(() => import('@/components/ResponderLocationTracker'), { ssr: false });
+const ResponderNavigationView = dynamic(() => import('@/components/ResponderNavigationView'), { ssr: false });
+const ResponseTimer = dynamic(() => import('@/components/ResponseTimer'), { ssr: false });
+const LiveVideoPlayer = dynamic(() => import('@/components/LiveVideoPlayer'), { ssr: false });
 
 interface Alert {
   id: number;

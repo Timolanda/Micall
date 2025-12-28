@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState } from 'react';
-import { supabase } from '../utils/supabaseClient';
 import 'leaflet/dist/leaflet.css';
 
 interface Alert {
@@ -29,19 +28,18 @@ export default function ResponderMap({ alerts = [], onAlertClick, responderLat, 
   const [userLocation, setUserLocation] = useState<[number, number] | null>(
     responderLat && responderLng ? [responderLat, responderLng] : null
   );
-  const responderMarkers = useRef<any[]>([]);
   const alertMarkers = useRef<any[]>([]);
   const [isMapLoaded, setIsMapLoaded] = useState(false);
   const [mapError, setMapError] = useState<string | null>(null);
-  const [isClient, setIsClient] = useState(false);
   const leafletRef = useRef<any>(null);
+  const lastLocationUpdate = useRef<number>(0);
+  const responderMarkers = useRef<any[]>([]);
 
   // Create responder icon with status-based colors
   const createResponderIcon = (status?: string) => {
     if (!leafletRef.current) return null;
     const L = leafletRef.current;
 
-    // Status-based colors
     const statusColors: Record<string, string> = {
       'available': '#10b981',      // Green
       'en-route': '#3b82f6',       // Blue
@@ -133,62 +131,52 @@ export default function ResponderMap({ alerts = [], onAlertClick, responderLat, 
     });
   };
 
-  // Ensure we're on the client side
+  // Get user location with throttling (5 seconds minimum between updates)
   useEffect(() => {
-    setIsClient(true);
-  }, []);
-
-  // Get user location
-  useEffect(() => {
-    if (!isClient) return;
-    
-    // Check if geolocation is supported
     if (!navigator.geolocation) {
       console.log('Geolocation not supported, using fallback location');
-      // Use a fallback location instead of showing error
-      setUserLocation([40.7128, -74.0060]); // NYC as fallback
+      setUserLocation([40.7128, -74.0060]);
       return;
     }
     
     const watchId = navigator.geolocation.watchPosition(
       (pos) => {
-        const coords: [number, number] = [pos.coords.latitude, pos.coords.longitude];
-        console.log('Location updated:', coords);
-        setUserLocation(coords);
-        if (leafletMap.current && userMarker.current) {
-          userMarker.current.setLatLng(coords);
-          leafletMap.current.setView(coords, 14);
+        const now = Date.now();
+        if (now - lastLocationUpdate.current >= 5000) {
+          const coords: [number, number] = [pos.coords.latitude, pos.coords.longitude];
+          lastLocationUpdate.current = now;
+          setUserLocation(coords);
+          if (leafletMap.current && userMarker.current) {
+            userMarker.current.setLatLng(coords);
+            leafletMap.current.setView(coords, 14);
+          }
         }
       },
       (err) => {
         console.error('Geolocation error:', err);
-        // Use fallback location instead of showing error
-        console.log('Using fallback location due to geolocation error');
-        setUserLocation([40.7128, -74.0060]); // NYC as fallback
+        setUserLocation([40.7128, -74.0060]);
       },
       { 
         enableHighAccuracy: true, 
         timeout: 10000, 
-        maximumAge: 30000 
+        maximumAge: 5000
       }
     );
     
     return () => navigator.geolocation.clearWatch(watchId);
-  }, [isClient]);
+  }, []);
 
   // Initialize map
   useEffect(() => {
-    if (!isClient || !mapRef.current || leafletMap.current) return;
+    if (!mapRef.current || leafletMap.current) return;
 
     const initMap = async () => {
       try {
         const L = await import('leaflet');
-        leafletRef.current = L; // Store reference for createResponderIcon
+        leafletRef.current = L;
         
-        // Check if map is already initialized
         if (leafletMap.current) return;
         
-        // Create custom icons using SVG-like approach
         const createUserIcon = () => {
           return L.divIcon({
             className: 'custom-user-marker',
@@ -220,8 +208,7 @@ export default function ResponderMap({ alerts = [], onAlertClick, responderLat, 
         };
 
         if (mapRef.current) {
-          // Default to a fallback location if no user location yet
-          const defaultLocation: [number, number] = userLocation || [40.7128, -74.0060]; // NYC as fallback
+          const defaultLocation: [number, number] = userLocation || [40.7128, -74.0060];
           
           leafletMap.current = L.map(mapRef.current, {
             center: defaultLocation,
@@ -236,7 +223,6 @@ export default function ResponderMap({ alerts = [], onAlertClick, responderLat, 
             attribution: '© OpenStreetMap contributors'
           }).addTo(leafletMap.current);
           
-          // Add user marker
           userMarker.current = L.marker(defaultLocation, { 
             icon: createUserIcon(),
             title: 'Your Location'
@@ -252,7 +238,6 @@ export default function ResponderMap({ alerts = [], onAlertClick, responderLat, 
 
     initMap();
 
-    // Cleanup function
     return () => {
       if (leafletMap.current) {
         leafletMap.current.remove();
@@ -262,27 +247,23 @@ export default function ResponderMap({ alerts = [], onAlertClick, responderLat, 
         setIsMapLoaded(false);
       }
     };
-  }, [isClient, userLocation]);
+  }, [userLocation]);
 
-  // Update user marker and fetch responders
+  // Update user marker and render alert markers
   useEffect(() => {
-    if (!isClient || !userLocation || !leafletMap.current || !isMapLoaded) return;
+    if (!userLocation || !leafletMap.current || !isMapLoaded) return;
 
     const updateMap = async () => {
       try {
         const L = await import('leaflet');
         
-        // Update user marker position
         userMarker.current?.setLatLng(userLocation);
         leafletMap.current.setView(userLocation, 14);
         
-        // Add alert markers from props
         if (alerts && alerts.length > 0) {
-          // Clear existing alert markers
           alertMarkers.current.forEach((m) => m.remove());
           alertMarkers.current = [];
           
-          // Add new alert markers
           alerts.forEach((alert: Alert) => {
             const alertIcon = createAlertIcon(alert.type);
             const marker = L.marker([alert.lat, alert.lng], { 
@@ -290,7 +271,6 @@ export default function ResponderMap({ alerts = [], onAlertClick, responderLat, 
               title: `${alert.type} - ${alert.message}`
             }).addTo(leafletMap.current!);
             
-            // Add popup with alert details
             marker.bindPopup(`
               <div style="font-family: sans-serif; font-size: 12px; min-width: 180px;">
                 <strong style="color: #ef4444;">${alert.type}</strong><br/>
@@ -324,85 +304,13 @@ export default function ResponderMap({ alerts = [], onAlertClick, responderLat, 
             alertMarkers.current.push(marker);
           });
         }
-        
-        // Fetch responders within 1km
-        const fetchResponders = async () => {
-          try {
-            const { data, error } = await supabase.rpc('get_nearby_responders', {
-              lat: userLocation[0],
-              lng: userLocation[1],
-              radius_km: 1
-            });
-            
-            if (error) {
-              console.error('Error fetching responders:', error);
-              return;
-            }
-            
-            // Clear existing responder markers
-            responderMarkers.current.forEach((m) => m.remove());
-            responderMarkers.current = [];
-            
-            // Add new responder markers
-            data?.forEach((r: { lat: number; lng: number; id: string; status?: string }) => {
-              const responderIcon = createResponderIcon(r.status);
-              
-              const statusLabel = r.status 
-                ? r.status.charAt(0).toUpperCase() + r.status.slice(1).replace('-', ' ')
-                : 'Available';
-              
-              const marker = L.marker([r.lat, r.lng], { 
-                icon: responderIcon,
-                title: `Emergency Responder - ${statusLabel}`
-              }).addTo(leafletMap.current!);
-              
-              // Add popup with responder status
-              marker.bindPopup(`
-                <div style="font-family: sans-serif; font-size: 12px;">
-                  <strong>Responder Status</strong><br/>
-                  Status: <span style="color: green; font-weight: bold;">${statusLabel}</span>
-                </div>
-              `, { 
-                maxWidth: 150,
-                className: 'responder-popup'
-              });
-              
-              responderMarkers.current.push(marker);
-            });
-          } catch (error) {
-            console.error('Error updating responders:', error);
-          }
-        };
-        
-        fetchResponders();
-        
-        // Set up real-time updates
-        const channel = supabase.channel('responders-map')
-          .on('postgres_changes', { event: '*', schema: 'public', table: 'responders' }, fetchResponders)
-          .subscribe();
-        
-        return () => {
-          channel.unsubscribe();
-        };
       } catch (error) {
-        console.error('Map update error:', error);
+        console.error('Error updating map:', error);
       }
     };
 
     updateMap();
-  }, [isClient, userLocation, isMapLoaded, alerts]);
-
-  // Don't render anything until we're on the client
-  if (!isClient) {
-    return (
-      <div className="w-full h-full bg-gray-800 rounded-xl flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-400 mx-auto mb-2"></div>
-          <p className="text-sm text-gray-400">Loading map...</p>
-        </div>
-      </div>
-    );
-  }
+  }, [userLocation, alerts, onAlertClick]);
 
   if (mapError) {
     return (
@@ -422,4 +330,4 @@ export default function ResponderMap({ alerts = [], onAlertClick, responderLat, 
       style={{ minHeight: '256px' }}
     />
   );
-} 
+}
