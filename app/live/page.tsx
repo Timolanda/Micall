@@ -30,7 +30,7 @@ interface Alert {
 }
 
 export default function LivePage() {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const router = useRouter();
 
   // State
@@ -47,10 +47,11 @@ export default function LivePage() {
 
   // Redirect if not authenticated
   useEffect(() => {
+    if (authLoading) return; // Wait for auth to load
     if (!user) {
       router.push('/auth/login');
     }
-  }, [user, router]);
+  }, [user, authLoading, router]);
 
   // Fetch alerts on mount and subscribe to changes
   useEffect(() => {

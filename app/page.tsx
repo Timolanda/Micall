@@ -24,6 +24,7 @@ export default function HomePage() {
   const [showHistory, setShowHistory] = useState(false);
   const [showSOSModal, setShowSOSModal] = useState(false);
   const [sosLoading, setSOSLoading] = useState(false);
+  const [respondersCount, setRespondersCount] = useState<number>(0);
   const router = useRouter();
   const { user } = useAuth();
   const userId = user?.id || null;
@@ -56,6 +57,38 @@ export default function HomePage() {
     );
     
     return () => navigator.geolocation.clearWatch(watchId);
+  }, [isAuthenticated]);
+
+  // Fetch responders count
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    const fetchRespondersCount = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('id')
+          .eq('role', 'responder')
+          .in('status', ['available', 'on_duty']);
+
+        if (error) throw error;
+        setRespondersCount(data?.length || 0);
+      } catch (error) {
+        console.error('Error fetching responders count:', error);
+      }
+    };
+
+    fetchRespondersCount();
+
+    // Subscribe to profile changes for real-time updates
+    const channel = supabase
+      .channel('responders-status')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, fetchRespondersCount)
+      .subscribe();
+
+    return () => {
+      channel.unsubscribe();
+    };
   }, [isAuthenticated]);
 
   const handleGoLive = async () => {
@@ -300,8 +333,8 @@ export default function HomePage() {
                 </div>
               </div>
               <h3 className="text-lg font-semibold mb-2">Responders Ready</h3>
-              <p className="text-2xl font-bold text-green-400 mb-1">✓</p>
-              <p className="text-sm text-gray-400">Monitoring your area</p>
+              <p className="text-2xl font-bold text-green-400 mb-1">{respondersCount}</p>
+              <p className="text-sm text-gray-400">{respondersCount === 1 ? 'responder' : 'responders'} available</p>
             </div>
           </div>
         </div>
