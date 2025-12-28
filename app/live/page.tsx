@@ -23,6 +23,7 @@ interface Alert {
   created_at: string;
   status: string;
   user_id: string;
+  video_url?: string;
 }
 
 export default function LivePage() {
@@ -192,6 +193,7 @@ export default function LivePage() {
           onStatusChange={(status: 'en_route' | 'on_scene' | 'complete') => {
             console.log('Status changed to:', status);
           }}
+          onClose={handleCloseNavigation}
         />
         {/* Close button */}
         <button
@@ -231,7 +233,7 @@ export default function LivePage() {
 
   // Main responder dashboard view
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 pb-20 md:pb-0">
       {/* Background location tracker */}
       <ResponderLocationTracker onLocationUpdate={handleLocationUpdate} />
 
@@ -353,17 +355,7 @@ export default function LivePage() {
                         >
                           📍 Navigate
                         </button>
-                        {alert.video_url && (
-                          <button
-                            onClick={() => {
-                              setSelectedAlert(alert);
-                              setShowVideoModal(true);
-                            }}
-                            className="flex-1 text-xs px-2 py-1 bg-purple-600 text-white rounded hover:bg-purple-700 transition font-semibold"
-                          >
-                            📹 Watch
-                          </button>
-                        )}
+
                       </div>
                     </div>
                   );
@@ -498,6 +490,32 @@ export default function LivePage() {
           )}
         </div>
       </div>
+
+      {/* Bottom Navigation Bar (Mobile Only) */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-lg z-40">
+        <div className="flex justify-around items-center">
+          <Link
+            href="/"
+            className="flex-1 flex flex-col items-center justify-center py-3 px-2 hover:bg-gray-50 transition border-r border-gray-200"
+          >
+            <MapPin className="w-6 h-6 text-gray-700" />
+            <span className="text-xs text-gray-700 mt-1">Home</span>
+          </Link>
+
+          <div className="flex-1 flex flex-col items-center justify-center py-3 px-2 hover:bg-gray-50 transition border-r border-gray-200 bg-blue-50">
+            <Navigation className="w-6 h-6 text-blue-600" />
+            <span className="text-xs text-blue-600 mt-1 font-semibold">Live</span>
+          </div>
+
+          <Link
+            href="/settings"
+            className="flex-1 flex flex-col items-center justify-center py-3 px-2 hover:bg-gray-50 transition"
+          >
+            <Settings className="w-6 h-6 text-gray-700" />
+            <span className="text-xs text-gray-700 mt-1">Settings</span>
+          </Link>
+        </div>
+      </nav>
     </div>
   );
 }
