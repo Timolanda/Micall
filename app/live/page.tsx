@@ -1,297 +1,430 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { supabase } from '../../utils/supabaseClient';
-import { MapPin, Phone, Video, AlertTriangle, CheckCircle, X } from 'lucide-react';
-import { toast } from 'sonner';
+import { useAuth } from '@/hooks/useAuth';
+import { supabase } from '@/utils/supabaseClient';
+import { useRouter } from 'next/navigation';
+import ResponderMap from '@/components/ResponderMap';
+import EmergencyNotification from '@/components/EmergencyNotification';
+import ResponderLocationTracker from '@/components/ResponderLocationTracker';
+import AlertFilterSystem from '@/components/AlertFilterSystem';
+import ResponderNavigationView from '@/components/ResponderNavigationView';
+import ResponseTimer from '@/components/ResponseTimer';
+import { MapPin, List, Map as MapIcon, Navigation, Settings } from 'lucide-react';
+import Link from 'next/link';
 
-interface EmergencyAlert {
+interface Alert {
   id: number;
-  user_id: string;
-  type: string;
-  message: string;
   lat: number;
   lng: number;
-  status: string;
+  type: string;
+  message: string;
   created_at: string;
-  video_url?: string;
+  status: string;
+  user_id: string;
 }
 
-export default function ResponderDashboard() {
-  const [alerts, setAlerts] = useState<EmergencyAlert[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [responderLocation, setResponderLocation] = useState<[number, number] | null>(null);
+export default function LivePage() {
+  const { user } = useAuth();
+  const router = useRouter();
 
-  // Get responder location
+  // State
+  const [responderLat, setResponderLat] = useState(40.7128);
+  const [responderLng, setResponderLng] = useState(-74.006);
+  const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [filteredAlerts, setFilteredAlerts] = useState<Alert[]>([]);
+  const [viewMode, setViewMode] = useState<'map' | 'list'>('map');
+  const [selectedAlert, setSelectedAlert] = useState<Alert | null>(null);
+  const [showNavigation, setShowNavigation] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Redirect if not authenticated
   useEffect(() => {
-    if (!navigator.geolocation) return;
-    
-    const watchId = navigator.geolocation.watchPosition(
-      (pos) => {
-        const coords: [number, number] = [pos.coords.latitude, pos.coords.longitude];
-        setResponderLocation(coords);
-        updateResponderLocation(coords);
-      },
-      (err) => console.error('Geolocation error:', err),
-      { enableHighAccuracy: true }
-    );
-    
-    return () => navigator.geolocation.clearWatch(watchId);
-  }, []);
-
-  // Update responder location in database
-  const updateResponderLocation = async (coords: [number, number]) => {
-    try {
-      const { data: userData } = await supabase.auth.getUser();
-      const userId = userData.user?.id;
-      
-      if (userId) {
-        await supabase.from('responders').upsert({
-          id: userId,
-          lat: coords[0],
-          lng: coords[1],
-          available: true,
-          updated_at: new Date().toISOString()
-        });
-      }
-    } catch (error) {
-      console.error('Error updating responder location:', error);
+    if (!user) {
+      router.push('/auth/login');
     }
-  };
+  }, [user, router]);
 
-  // Fetch emergency alerts near the responder
+  // Fetch alerts on mount and subscribe to changes
   useEffect(() => {
+    if (!user) return;
+
     const fetchAlerts = async () => {
       try {
-        if (responderLocation) {
-          const { data, error } = await supabase.rpc('get_nearby_alerts', {
-            lat: responderLocation[0],
-            lng: responderLocation[1],
-            radius_km: 1,
-          });
+        setIsLoading(true);
+        const { data, error } = await supabase
+          .from('emergency_alerts')
+          .select('*')
+          .eq('status', 'active')
+          .order('created_at', { ascending: false });
 
-          if (!error && data) {
-            setAlerts(data as EmergencyAlert[]);
-          } else if (error) {
-            toast.error('Failed to load nearby alerts.');
-          }
-        } else {
-          const { data, error } = await supabase
-            .from('emergency_alerts')
-            .select('*')
-            .eq('status', 'active')
-            .order('created_at', { ascending: false });
-
-          if (!error && data) {
-            setAlerts(data as EmergencyAlert[]);
-          } else if (error) {
-            toast.error('Failed to load alerts.');
-          }
-        }
+        if (error) throw error;
+        setAlerts((data as Alert[]) || []);
+        setFilteredAlerts((data as Alert[]) || []);
       } catch (error) {
         console.error('Error fetching alerts:', error);
-        toast.error('Unexpected error loading alerts.');
       } finally {
-        setLoading(false);
+        setIsLoading(false);
       }
     };
 
     fetchAlerts();
 
-    // Subscribe to real-time updates and keep list in sync
-    const channel = supabase
-      .channel('emergency-alerts')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'emergency_alerts',
-        },
-        (payload) => {
-          setAlerts((prev) => {
-            const next = [...prev];
-            if (payload.eventType === 'INSERT') {
-              const alert = payload.new as EmergencyAlert;
-              return [alert, ...next];
-            }
-            if (payload.eventType === 'UPDATE') {
-              return next.map((alert) =>
-                alert.id === payload.new.id ? (payload.new as EmergencyAlert) : alert
-              );
-            }
-            return next;
-          });
-        }
-      )
+    // Subscribe to real-time changes
+    const subscription = supabase
+      .from('emergency_alerts')
+      .on('*', (payload: any) => {
+        // Refetch alerts when there are changes
+        fetchAlerts();
+      })
       .subscribe();
 
     return () => {
-      channel.unsubscribe();
+      subscription.unsubscribe();
     };
-  }, [responderLocation]);
+  }, [user]);
 
-  const handleRespond = async (alertId: number) => {
-    try {
-      await supabase
-        .from('emergency_alerts')
-        .update({ status: 'responding' })
-        .eq('id', alertId);
-      toast.success('Marked alert as responding.');
-    } catch (error) {
-      console.error('Error responding to alert:', error);
-      toast.error('Failed to update alert status.');
-    }
+  // Handle location updates from background tracker
+  const handleLocationUpdate = (lat: number, lng: number) => {
+    setResponderLat(lat);
+    setResponderLng(lng);
   };
 
-  const handleResolve = async (alertId: number) => {
-    try {
-      await supabase
-        .from('emergency_alerts')
-        .update({ status: 'resolved' })
-        .eq('id', alertId);
-      toast.success('Alert resolved.');
-    } catch (error) {
-      console.error('Error resolving alert:', error);
-      toast.error('Failed to resolve alert.');
+  // Handle filter changes
+  const handleFilterChange = (filters: any) => {
+    let filtered = [...alerts];
+
+    // Filter by type
+    if (filters.type && filters.type.length > 0) {
+      filtered = filtered.filter((alert) => filters.type.includes(alert.type));
     }
+
+    // Filter by distance
+    if (filters.distance && filters.distance.length === 2) {
+      const [minKm, maxKm] = filters.distance;
+      filtered = filtered.filter((alert) => {
+        const distance = calculateDistance(
+          responderLat,
+          responderLng,
+          alert.lat,
+          alert.lng
+        );
+        return distance >= minKm && distance <= maxKm;
+      });
+    }
+
+    // Filter by severity
+    if (filters.severity && filters.severity.length > 0) {
+      filtered = filtered.filter((alert) => filters.severity.includes(alert.type));
+    }
+
+    // Filter by search query
+    if (filters.searchQuery && filters.searchQuery.trim()) {
+      const query = filters.searchQuery.toLowerCase();
+      filtered = filtered.filter((alert) =>
+        alert.message.toLowerCase().includes(query) ||
+        alert.type.toLowerCase().includes(query)
+      );
+    }
+
+    setFilteredAlerts(filtered);
   };
 
-  const getAlertIcon = (type: string) => {
-    switch (type) {
-      case 'SOS':
-        return <AlertTriangle className="text-red-500" size={20} />;
-      case 'video':
-        return <Video className="text-blue-500" size={20} />;
-      default:
-        return <MapPin className="text-yellow-500" size={20} />;
-    }
+  // Calculate distance between two points
+  const calculateDistance = (lat1: number, lng1: number, lat2: number, lng2: number): number => {
+    const R = 6371; // Earth's radius in km
+    const dLat = ((lat2 - lat1) * Math.PI) / 180;
+    const dLng = ((lng2 - lng1) * Math.PI) / 180;
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos((lat1 * Math.PI) / 180) *
+        Math.cos((lat2 * Math.PI) / 180) *
+        Math.sin(dLng / 2) *
+        Math.sin(dLng / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
   };
 
-  const getAlertColor = (type: string) => {
-    switch (type) {
-      case 'SOS':
-        return 'border-red-500 bg-red-500/10';
-      case 'video':
-        return 'border-blue-500 bg-blue-500/10';
-      default:
-        return 'border-yellow-500 bg-yellow-500/10';
-    }
+  // Handle alert selection for navigation
+  const handleSelectAlert = (alert: Alert) => {
+    setSelectedAlert(alert);
+    setShowNavigation(true);
   };
 
-  if (loading) {
+  // Handle closing navigation
+  const handleCloseNavigation = () => {
+    setShowNavigation(false);
+    setSelectedAlert(null);
+  };
+
+  // If showing full navigation view
+  if (showNavigation && selectedAlert) {
     return (
-      <div className="min-h-screen bg-black text-white flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
-          <p>Loading emergency alerts...</p>
-        </div>
+      <div className="relative">
+        <ResponderNavigationView
+          alert={selectedAlert}
+          responderLat={responderLat}
+          responderLng={responderLng}
+          onStatusChange={(status: 'en_route' | 'on_scene' | 'complete') => {
+            console.log('Status changed to:', status);
+          }}
+        />
+        {/* Close button */}
+        <button
+          onClick={handleCloseNavigation}
+          className="absolute top-6 left-6 z-50 bg-white rounded-full p-3 shadow-lg hover:bg-gray-50 transition border border-gray-200 hover:shadow-xl"
+          title="Back to dashboard"
+        >
+          ← Back
+        </button>
       </div>
     );
   }
 
+  // Main responder dashboard view
   return (
-    <div className="min-h-screen bg-black text-white p-4">
-      <div className="max-w-4xl mx-auto">
-        {/* Header */}
-        <div className="mb-6">
-          <h1 className="text-2xl font-bold mb-2">Emergency Response Dashboard</h1>
-          <p className="text-zinc-400">Monitor and respond to emergency alerts in real-time</p>
+    <div className="min-h-screen bg-gray-50">
+      {/* Background location tracker */}
+      <ResponderLocationTracker onLocationUpdate={handleLocationUpdate} />
+
+      {/* Header */}
+      <header className="bg-white border-b border-gray-200 sticky top-0 z-20 shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900">Responder Dashboard</h1>
+              <p className="text-gray-600 mt-1">
+                {filteredAlerts.length} active alert{filteredAlerts.length !== 1 ? 's' : ''} near you
+              </p>
+            </div>
+
+            {/* Header Actions */}
+            <div className="flex gap-2">
+              {/* View Mode Toggle */}
+              <div className="flex gap-2 bg-gray-100 rounded-lg p-1">
+                <button
+                  onClick={() => setViewMode('map')}
+                  className={`px-4 py-2 rounded-lg font-semibold transition flex items-center gap-2 ${
+                    viewMode === 'map'
+                      ? 'bg-white text-blue-600 shadow-sm'
+                      : 'text-gray-700 hover:text-gray-900'
+                  }`}
+                >
+                  <MapIcon className="w-4 h-4" />
+                  <span className="hidden sm:inline">Map</span>
+                </button>
+                <button
+                  onClick={() => setViewMode('list')}
+                  className={`px-4 py-2 rounded-lg font-semibold transition flex items-center gap-2 ${
+                    viewMode === 'list'
+                      ? 'bg-white text-blue-600 shadow-sm'
+                      : 'text-gray-700 hover:text-gray-900'
+                  }`}
+                >
+                  <List className="w-4 h-4" />
+                  <span className="hidden sm:inline">List</span>
+                </button>
+              </div>
+
+              {/* Settings Link */}
+              <Link
+                href="/settings"
+                className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-semibold transition flex items-center gap-2"
+              >
+                <Settings className="w-4 h-4" />
+                <span className="hidden sm:inline">Settings</span>
+              </Link>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      {/* Main Content */}
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 p-4 sm:p-6 max-w-7xl mx-auto">
+        {/* Sidebar - Filters & Alerts */}
+        <div className="lg:col-span-1 space-y-6">
+          {/* Alert Filter System */}
+          <AlertFilterSystem onFiltersChange={handleFilterChange} />
+
+          {/* Alerts Summary Card */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+            <div className="flex items-center gap-2 mb-4">
+              <MapPin className="w-5 h-5 text-red-600" />
+              <h2 className="font-bold text-gray-900">
+                Nearby Alerts
+              </h2>
+              <span className="ml-auto px-3 py-1 bg-red-100 text-red-700 rounded-full text-xs font-bold">
+                {filteredAlerts.length}
+              </span>
+            </div>
+
+            {isLoading ? (
+              <div className="space-y-2">
+                {[...Array(3)].map((_, i) => (
+                  <div key={i} className="h-16 bg-gray-200 rounded-lg animate-pulse" />
+                ))}
+              </div>
+            ) : filteredAlerts.length > 0 ? (
+              <div className="space-y-2 max-h-[600px] overflow-y-auto">
+                {filteredAlerts.map((alert) => {
+                  const distance = calculateDistance(
+                    responderLat,
+                    responderLng,
+                    alert.lat,
+                    alert.lng
+                  );
+
+                  return (
+                    <button
+                      key={alert.id}
+                      onClick={() => handleSelectAlert(alert)}
+                      className="w-full text-left p-3 bg-gradient-to-r from-red-50 to-orange-50 hover:from-red-100 hover:to-orange-100 rounded-lg border-l-4 border-red-600 transition hover:shadow-md"
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <p className="font-semibold text-gray-900 text-sm">{alert.type}</p>
+                          <p className="text-xs text-gray-600 mt-1 line-clamp-1">
+                            {alert.message}
+                          </p>
+                        </div>
+                        <span className="text-xs font-bold text-blue-600 ml-2">
+                          {distance.toFixed(1)} km
+                        </span>
+                      </div>
+                      <p className="text-xs text-gray-500 mt-2 flex items-center gap-1">
+                        ⏱️ <ResponseTimer alertCreatedAt={alert.created_at} />
+                      </p>
+                      <p className="text-xs text-blue-600 font-semibold mt-2">
+                        📍 Navigate →
+                      </p>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="text-center py-8">
+                <MapPin className="w-8 h-8 text-gray-400 mx-auto mb-2" />
+                <p className="text-gray-600 text-sm font-medium">No alerts match your filters</p>
+                <p className="text-xs text-gray-500 mt-1">Adjust filters or check back soon</p>
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* Responder Status */}
-        {responderLocation && (
-          <div className="bg-zinc-900 rounded-xl p-4 mb-6 border border-green-500/20">
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
-              <span className="text-green-400 font-medium">Online & Available</span>
-            </div>
-            <p className="text-sm text-zinc-400 mt-1">
-              Location: {responderLocation[0].toFixed(4)}, {responderLocation[1].toFixed(4)}
-            </p>
-          </div>
-        )}
-
-        {/* Emergency Alerts */}
-        <div className="space-y-4">
-          <h2 className="text-xl font-semibold">Active Emergency Alerts ({alerts.length})</h2>
-          
-          {alerts.length === 0 ? (
-            <div className="bg-zinc-900 rounded-xl p-8 text-center">
-              <AlertTriangle size={48} className="text-zinc-600 mx-auto mb-4" />
-              <p className="text-zinc-400">No active emergency alerts</p>
-              <p className="text-sm text-zinc-500 mt-2">You&rsquo;ll be notified when new alerts come in</p>
-            </div>
-          ) : (
-            alerts.map((alert) => (
-              <div 
-                key={alert.id} 
-                className={`bg-zinc-900 rounded-xl p-4 border-l-4 ${getAlertColor(alert.type)}`}
-              >
-                <div className="flex items-start justify-between">
-                  <div className="flex items-start gap-3 flex-1">
-                    {getAlertIcon(alert.type)}
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1">
-                        <h3 className="font-semibold text-lg">
-                          {alert.type === 'SOS' ? 'SOS ALERT' : 'Emergency Alert'}
-                        </h3>
-                        <span className="text-xs bg-red-500 text-white px-2 py-1 rounded">
-                          {alert.type.toUpperCase()}
-                        </span>
-                      </div>
-                      <p className="text-zinc-300 mb-2">{alert.message}</p>
-                      <div className="flex items-center gap-4 text-sm text-zinc-400">
-                        <span className="flex items-center gap-1">
-                          <MapPin size={14} />
-                          {alert.lat.toFixed(4)}, {alert.lng.toFixed(4)}
-                        </span>
-                        <span>
-                          {new Date(alert.created_at).toLocaleTimeString()}
-                        </span>
-                      </div>
-                      {alert.video_url && (
-                        <div className="mt-2">
-                          <a 
-                            href={alert.video_url} 
-                            target="_blank" 
-                            rel="noopener noreferrer"
-                            className="text-blue-400 hover:text-blue-300 text-sm flex items-center gap-1"
-                          >
-                            <Video size={14} />
-                            View Emergency Video
-                          </a>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  
-                  <div className="flex gap-2">
-                    {alert.status === 'active' && (
-                      <button
-                        onClick={() => handleRespond(alert.id)}
-                        className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-sm flex items-center gap-1"
-                      >
-                        <Phone size={14} />
-                        Respond
-                      </button>
-                    )}
-                    {alert.status === 'responding' && (
-                      <button
-                        onClick={() => handleResolve(alert.id)}
-                        className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-sm flex items-center gap-1"
-                      >
-                        <CheckCircle size={14} />
-                        Resolve
-                      </button>
-                    )}
+        {/* Main Content Area */}
+        <div className="lg:col-span-3">
+          {viewMode === 'map' ? (
+            // Map View
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden h-[600px] lg:h-[700px]">
+              {isLoading ? (
+                <div className="w-full h-full bg-gradient-to-br from-gray-100 to-gray-200 animate-pulse flex items-center justify-center">
+                  <div className="text-center">
+                    <div className="w-12 h-12 bg-gray-300 rounded-full mx-auto mb-3 animate-pulse" />
+                    <p className="text-gray-600 font-medium">Loading map...</p>
                   </div>
                 </div>
-              </div>
-            ))
+              ) : filteredAlerts.length > 0 ? (
+                <ResponderMap />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center bg-gray-50">
+                  <div className="text-center">
+                    <MapPin className="w-12 h-12 text-gray-400 mx-auto mb-3" />
+                    <p className="text-gray-600 font-medium">No alerts to display</p>
+                    <p className="text-sm text-gray-500 mt-1">
+                      Check back soon or adjust your filters
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            // List View
+            <div className="space-y-4">
+              {isLoading ? (
+                <div className="space-y-3">
+                  {[...Array(3)].map((_, i) => (
+                    <div
+                      key={i}
+                      className="h-24 bg-white rounded-lg border border-gray-200 animate-pulse"
+                    />
+                  ))}
+                </div>
+              ) : filteredAlerts.length > 0 ? (
+                filteredAlerts.map((alert) => {
+                  const distance = calculateDistance(
+                    responderLat,
+                    responderLng,
+                    alert.lat,
+                    alert.lng
+                  );
+
+                  return (
+                    <div
+                      key={alert.id}
+                      className="bg-white rounded-xl shadow-sm border-l-4 border-red-600 p-6 hover:shadow-md transition"
+                    >
+                      <div className="flex items-start justify-between mb-4">
+                        <div className="flex-1">
+                          <h3 className="text-lg font-bold text-gray-900">{alert.type}</h3>
+                          <p className="text-gray-600 mt-1">{alert.message}</p>
+                        </div>
+                        <span className="px-3 py-1 bg-red-100 text-red-700 rounded-full text-xs font-bold whitespace-nowrap ml-4">
+                          Active
+                        </span>
+                      </div>
+
+                      {/* Alert Info Grid */}
+                      <div className="grid grid-cols-4 gap-4 mb-4 pt-4 border-t border-gray-200">
+                        <div>
+                          <p className="text-xs text-gray-500 font-semibold">DISTANCE</p>
+                          <p className="text-lg font-bold text-blue-600 mt-1">
+                            {distance.toFixed(1)} km
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-gray-500 font-semibold">ELAPSED TIME</p>
+                          <p className="text-sm font-bold text-green-600 mt-1">
+                            <ResponseTimer alertCreatedAt={alert.created_at} />
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-gray-500 font-semibold">ETA</p>
+                          <p className="text-sm font-bold text-purple-600 mt-1">
+                            {Math.ceil((distance / 60) * 60)}m
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-gray-500 font-semibold">LOCATION</p>
+                          <p className="text-xs font-mono text-gray-700 mt-1">
+                            {alert.lat.toFixed(2)}, {alert.lng.toFixed(2)}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Action Button */}
+                      <button
+                        onClick={() => handleSelectAlert(alert)}
+                        className="w-full px-4 py-3 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white rounded-lg font-bold transition shadow-md hover:shadow-lg flex items-center justify-center gap-2"
+                      >
+                        <Navigation className="w-5 h-5" />
+                        Start Navigation
+                      </button>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
+                  <MapPin className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                  <p className="text-gray-600 font-medium">No alerts match your filters</p>
+                  <p className="text-sm text-gray-500 mt-2">
+                    Check back soon or adjust your filter settings
+                  </p>
+                </div>
+              )}
+            </div>
           )}
         </div>
       </div>
     </div>
   );
-} 
+}

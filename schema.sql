@@ -9,6 +9,8 @@ create table profiles (
   role text check (role in ('victim', 'responder', 'contact')),
   photo_url text,
   medical_info text,
+  location_sharing_enabled boolean default false,
+  location_sharing_updated_at timestamp with time zone default timezone('utc'::text, now()),
   created_at timestamp with time zone default timezone('utc'::text, now())
 );
 
@@ -20,8 +22,12 @@ create table contacts (
   phone text not null,
   email text,
   relationship text,
+  can_view_location boolean default true,
   created_at timestamp with time zone default timezone('utc'::text, now()),
-  constraint unique_user_phone unique (user_id, phone)
+  constraint unique_user_phone unique (user_id, phone),
+  constraint max_contacts_per_user check (
+    (select count(*) from contacts c2 where c2.user_id = user_id) <= 5
+  )
 );
 
 -- Emergency alerts (matches our current implementation)
@@ -47,7 +53,7 @@ create table responders (
   updated_at timestamp with time zone default timezone('utc'::text, now())
 );
 
--- User locations (for broadcasting during emergencies)
+-- User locations (for broadcasting during emergencies and continuous sharing)
 create table user_locations (
   id bigserial primary key,
   user_id uuid references profiles(id) on delete cascade,
@@ -56,6 +62,16 @@ create table user_locations (
   accuracy double precision,
   updated_at timestamp with time zone default timezone('utc'::text, now()),
   unique(user_id)
+);
+
+-- Location sharing permissions (which contacts can see user's location)
+create table location_sharing_permissions (
+  id bigserial primary key,
+  user_id uuid references profiles(id) on delete cascade,
+  contact_id bigint references contacts(id) on delete cascade,
+  can_view boolean default true,
+  created_at timestamp with time zone default timezone('utc'::text, now()),
+  constraint unique_user_contact unique (user_id, contact_id)
 );
 
 -- Notifications for in-app alerts
@@ -221,19 +237,50 @@ create policy "Responders can update own location" on responders
 create policy "Anyone can view available responders" on responders
   for select using (available = true);
 
--- User locations policies (for emergency broadcasting)
+-- User locations policies (for emergency broadcasting AND continuous location sharing)
 create policy "Users can manage own location" on user_locations
   for all using (auth.uid() = user_id);
 
-create policy "Responders can view active locations" on user_locations
+create policy "Responders can view active locations during emergencies" on user_locations
+  for select using (
+    exists (
+      select 1
+      from emergency_alerts ea
+      where ea.user_id = user_locations.user_id
+        and ea.status = 'active'
+        and exists (
+          select 1
+          from profiles p
+          where p.id = auth.uid()
+            and p.role = 'responder'
+        )
+    )
+  );
+
+create policy "Emergency contacts can view shared locations" on user_locations
   for select using (
     exists (
       select 1
       from profiles p
       where p.id = auth.uid()
-        and p.role = 'responder'
     )
-    or auth.uid() = user_id
+    and (
+      auth.uid() = user_id
+      or (
+        -- Contact can view if user has location sharing enabled
+        -- and this contact is in their emergency contacts
+        select location_sharing_enabled from profiles where id = user_locations.user_id
+      )
+      and exists (
+        select 1
+        from contacts c
+        where c.user_id = user_locations.user_id
+          and c.phone = (
+            select email from auth.users where id = auth.uid()
+          )
+          and c.can_view_location = true
+      )
+    )
   );
 
 -- Notifications policies
