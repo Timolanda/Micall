@@ -534,12 +534,14 @@ export default function GoLiveButton({ onStart }: GoLiveButtonProps = {}) {
         clearInterval(locationIntervalRef.current);
       }
 
-      if (subscriptionRef.current) {
-        subscriptionRef.current.unsubscribe();
+      const subscription = subscriptionRef.current;
+      if (subscription) {
+        subscription.unsubscribe();
       }
 
-      if (mediaStreamRef.current) {
-        mediaStreamRef.current.getTracks().forEach((track) => {
+      const mediaStream = mediaStreamRef.current;
+      if (mediaStream) {
+        mediaStream.getTracks().forEach((track) => {
           track.stop();
         });
       }

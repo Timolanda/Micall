@@ -165,7 +165,7 @@ export default function LocationSharingPage() {
                 <span className="text-gray-400 group-open:rotate-180 transition">▼</span>
               </summary>
               <p className="text-gray-600 mt-3 text-sm">
-                Your emergency contacts can track your phone's last known location as long as
+                Your emergency contacts can track your phone&apos;s last known location as long as
                 location sharing is enabled. This helps you locate your phone quickly.
               </p>
             </details>

@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import L from 'leaflet';
 import { useAuth } from '@/hooks/useAuth';
 import { getTrackedUsers, formatLastUpdate, calculateDistance } from '@/utils/locationSharingUtils';
 import { MapPin, RefreshCw, Users } from 'lucide-react';
@@ -31,47 +30,53 @@ export default function ContactLocationMap({
   useEffect(() => {
     if (!mapRef.current || mapInstanceRef.current) return;
 
-    // Default location (New York)
-    const defaultCoords = [40.7128, -74.006] as [number, number];
+    const initMap = async () => {
+      const L = await import('leaflet');
+      
+      // Default location (New York)
+      const defaultCoords = [40.7128, -74.006] as [number, number];
 
-    mapInstanceRef.current = L.map(mapRef.current, {
-      center: defaultCoords,
-      zoom: 12,
-      zoomControl: true,
-      attributionControl: false,
-    });
+      mapInstanceRef.current = L.default.map(mapRef.current!, {
+        center: defaultCoords,
+        zoom: 12,
+        zoomControl: true,
+        attributionControl: false,
+      });
 
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      minZoom: 10,
-      maxZoom: 18,
-    }).addTo(mapInstanceRef.current);
+      L.default.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        minZoom: 10,
+        maxZoom: 18,
+      }).addTo(mapInstanceRef.current);
 
-    // Get user's own location
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          const { latitude, longitude } = position.coords;
-          setUserLocation([latitude, longitude]);
-          mapInstanceRef.current.setView([latitude, longitude], 13);
+      // Get user's own location
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            const { latitude, longitude } = position.coords;
+            setUserLocation([latitude, longitude]);
+            mapInstanceRef.current.setView([latitude, longitude], 13);
 
-          // Add user marker
-          L.circleMarker([latitude, longitude], {
-            radius: 10,
-            fillColor: '#3b82f6',
-            color: '#1e40af',
-            weight: 2,
-            opacity: 1,
-            fillOpacity: 0.8,
-          })
-            .bindPopup('<p className="font-bold">Your Location</p>')
-            .addTo(mapInstanceRef.current);
-        },
-        () => {
-          // Geolocation error - use default
-          mapInstanceRef.current.setView(defaultCoords, 12);
-        }
-      );
-    }
+            // Add user marker
+            L.default.circleMarker([latitude, longitude], {
+              radius: 10,
+              fillColor: '#3b82f6',
+              color: '#1e40af',
+              weight: 2,
+              opacity: 1,
+              fillOpacity: 0.8,
+            })
+              .bindPopup('<p className="font-bold">Your Location</p>')
+              .addTo(mapInstanceRef.current);
+          },
+          () => {
+            // Geolocation error - use default
+            mapInstanceRef.current.setView(defaultCoords, 12);
+          }
+        );
+      }
+    };
+
+    initMap();
 
     return () => {
       if (mapInstanceRef.current) {
@@ -92,6 +97,8 @@ export default function ContactLocationMap({
 
       // Update markers on map
       if (mapInstanceRef.current) {
+        const L = await import('leaflet');
+        
         // Clear old markers
         markersRef.current.forEach((marker) => marker.remove());
         markersRef.current.clear();
@@ -107,7 +114,7 @@ export default function ContactLocationMap({
               longitude
             );
 
-            const marker = L.circleMarker([latitude, longitude], {
+            const marker = L.default.circleMarker([latitude, longitude], {
               radius: 8,
               fillColor: '#22c55e',
               color: '#16a34a',
@@ -139,7 +146,7 @@ export default function ContactLocationMap({
   // Initial load
   useEffect(() => {
     loadTrackedUsers();
-  }, [user]);
+  }, [user, loadTrackedUsers]);
 
   // Auto-refresh
   useEffect(() => {
@@ -147,7 +154,7 @@ export default function ContactLocationMap({
 
     const interval = setInterval(loadTrackedUsers, refreshInterval);
     return () => clearInterval(interval);
-  }, [autoRefresh, refreshInterval, user]);
+  }, [autoRefresh, refreshInterval, user, loadTrackedUsers]);
 
   return (
     <div className="space-y-4">
