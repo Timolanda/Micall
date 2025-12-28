@@ -132,50 +132,6 @@ export default function ResponderMap({ alerts = [], onAlertClick, responderLat, 
     });
   };
 
-  // Create responder icon with status-based colors
-  const createResponderIcon = (status?: string) => {
-    if (!leafletRef.current) return null;
-    const L = leafletRef.current;
-
-    // Status-based colors
-    const statusColors: Record<string, string> = {
-      'available': '#10b981',      // Green
-      'en-route': '#3b82f6',       // Blue
-      'on-scene': '#f59e0b',       // Amber
-      'complete': '#8b5cf6',       // Purple
-    };
-
-    const color = statusColors[status || 'available'] || '#ef4444'; // Default red
-    
-    return L.divIcon({
-      className: 'custom-responder-marker',
-      html: `
-        <div style="
-          width: 20px; 
-          height: 20px; 
-          background: ${color}; 
-          border: 2px solid white; 
-          border-radius: 50%; 
-          box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-          position: relative;
-        ">
-          <div style="
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            width: 6px;
-            height: 6px;
-            background: white;
-            border-radius: 50%;
-          "></div>
-        </div>
-      `,
-      iconSize: [20, 20],
-      iconAnchor: [10, 10],
-    });
-  };
-
   // Ensure we're on the client side
   useEffect(() => {
     setIsClient(true);
