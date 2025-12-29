@@ -41,13 +41,38 @@ export default function ResponderNavigationView({
     getNavigationInfo(responderLat, responderLng, alert.lat, alert.lng)
   );
   const [isClient, setIsClient] = useState(false);
+  const [respondersCount, setRespondersCount] = useState(1);
+  const [liveStatus, setLiveStatus] = useState<'idle' | 'live' | 'completed'>('live');
+  const [isReconnecting, setIsReconnecting] = useState(false);
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Ensure we're on client side
   useEffect(() => {
     setIsClient(true);
   }, []);
 
-  // Create icons function
+  // Monitor network reconnects
+  useEffect(() => {
+    const handleOffline = () => {
+      setIsReconnecting(true);
+      toast.error('Connection lost. Reconnecting...');
+    };
+    const handleOnline = () => {
+      setIsReconnecting(false);
+      toast.success('Reconnected!');
+      initializeMap(); // re-attach map and markers
+      fetchRespondersCount(); // refresh responder count
+    };
+    window.addEventListener('offline', handleOffline);
+    window.addEventListener('online', handleOnline);
+
+    return () => {
+      window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('online', handleOnline);
+    };
+  }, []);
+
+  /** ---------------- UTILS ---------------- */
   const createIcons = (L: any) => {
     const victimIcon = new L.Icon({
       iconUrl:
@@ -68,54 +93,63 @@ export default function ResponderNavigationView({
     return { victimIcon, responderIcon };
   };
 
-  // Initialize map
+  /** ---------------- FETCH RESPONDER COUNT ---------------- */
+  const fetchRespondersCount = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from('responder_presence')
+        .select('id')
+        .eq('alert_id', alert.id)
+        .eq('active', true);
+
+      if (!error) setRespondersCount(data?.length || 1);
+    } catch (error) {
+      console.error('Failed to fetch responders count', error);
+    }
+  }, [alert.id]);
+
+  /** ---------------- INITIALIZE MAP ---------------- */
+  const initializeMap = useCallback(async () => {
+    if (!isClient || !mapRef.current) return;
+
+    const L = await import('leaflet');
+    leafletRef.current = L;
+    const { victimIcon, responderIcon } = createIcons(L);
+
+    const responderCoords = L.latLng(responderLat, responderLng);
+
+    if (!mapInstanceRef.current) {
+      mapInstanceRef.current = L.map(mapRef.current, {
+        center: responderCoords,
+        zoom: 15,
+        zoomControl: true,
+        attributionControl: false,
+      });
+
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        minZoom: 10,
+        maxZoom: 18,
+        attribution: '© OpenStreetMap contributors',
+      }).addTo(mapInstanceRef.current);
+    }
+
+    // Add or refresh victim marker
+    const victimMarker = L.marker(L.latLng(alert.lat, alert.lng), { icon: victimIcon }).addTo(mapInstanceRef.current);
+    victimMarker.bindPopup(
+      `<div class="text-sm"><p class="font-bold">Emergency Location</p><p class="text-red-600">${alert.message}</p></div>`
+    );
+
+    // Add or refresh responder marker
+    const responderMarker = L.marker(responderCoords, { icon: responderIcon }).addTo(mapInstanceRef.current);
+    responderMarker.bindPopup('<div class="text-sm"><p class="font-bold">Your Location</p></div>');
+
+    mapInstanceRef.current.setView(responderCoords, 15);
+  }, [isClient, alert.lat, alert.lng, alert.message, responderLat, responderLng]);
+
+  /** ---------------- EFFECTS ---------------- */
   useEffect(() => {
-    if (!isClient || !mapRef.current || mapInstanceRef.current) return;
-
-    const initMap = async () => {
-      try {
-        // Ensure mapRef exists before initializing
-        if (!mapRef.current) {
-          console.error('Map container not found');
-          return;
-        }
-
-        const L = await import('leaflet');
-        leafletRef.current = L;
-
-        const { victimIcon, responderIcon } = createIcons(L);
-        const responderCoords = L.latLng(responderLat, responderLng);
-
-        mapInstanceRef.current = L.map(mapRef.current, {
-          center: responderCoords,
-          zoom: 15,
-          zoomControl: true,
-          attributionControl: false,
-        });
-
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-          minZoom: 10,
-          maxZoom: 18,
-          attribution: '© OpenStreetMap contributors',
-        }).addTo(mapInstanceRef.current);
-
-        // Add victim marker
-        L.marker(L.latLng(alert.lat, alert.lng), { icon: victimIcon })
-          .bindPopup(
-            `<div class="text-sm"><p class="font-bold">Emergency Location</p><p class="text-red-600">${alert.message}</p></div>`
-          )
-          .addTo(mapInstanceRef.current);
-
-        // Add responder marker
-        L.marker(responderCoords, { icon: responderIcon })
-          .bindPopup('<div class="text-sm"><p class="font-bold">Your Location</p></div>')
-          .addTo(mapInstanceRef.current);
-      } catch (error) {
-        console.error('Error initializing map:', error);
-      }
-    };
-
-    initMap();
+    initializeMap();
+    fetchRespondersCount();
 
     return () => {
       if (mapInstanceRef.current) {
@@ -123,24 +157,24 @@ export default function ResponderNavigationView({
         mapInstanceRef.current = null;
       }
     };
-  }, [isClient, alert.lat, alert.lng, alert.message, responderLat, responderLng]);
+  }, [initializeMap, fetchRespondersCount]);
 
-  // Update navigation info and map
   useEffect(() => {
     const newNavInfo = getNavigationInfo(responderLat, responderLng, alert.lat, alert.lng);
     setNavInfo(newNavInfo);
 
-    // Update responder marker position
     if (mapInstanceRef.current && leafletRef.current) {
       const responderCoords = leafletRef.current.latLng(responderLat, responderLng);
       mapInstanceRef.current.setView(responderCoords, 15);
     }
   }, [responderLat, responderLng, alert.lat, alert.lng]);
 
+  /** ---------------- STATUS HANDLERS ---------------- */
   const handleStatusChange = useCallback(
     async (newStatus: 'en_route' | 'on_scene' | 'complete') => {
       try {
         setStatus(newStatus);
+        if (newStatus === 'complete') setLiveStatus('completed');
         onStatusChange?.(newStatus);
         toast.success(`Status updated to ${newStatus.replace('_', ' ')}`);
       } catch (error) {
@@ -151,51 +185,63 @@ export default function ResponderNavigationView({
     [onStatusChange]
   );
 
-  const handleCall = () => {
-    // Open phone dialer
-    const phoneNumber = 'tel:911';
-    window.location.href = phoneNumber;
-  };
+  const handleCall = () => (window.location.href = 'tel:911');
+  const handleOpenInMaps = () =>
+    window.open(`https://www.google.com/maps/search/?api=1&query=${alert.lat},${alert.lng}`, '_blank');
 
-  const handleOpenInMaps = () => {
-    // Open in Google Maps
-    const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${alert.lat},${alert.lng}`;
-    window.open(mapsUrl, '_blank');
-  };
-
+  /** ---------------- RENDER ---------------- */
   return (
-    <div className="fixed inset-0 z-40 flex flex-col bg-white">
-      {/* Close Button */}
-      <button
-        onClick={onClose}
-        className="absolute top-4 left-4 z-50 bg-white rounded-full p-3 shadow-lg hover:bg-gray-50 transition"
-        aria-label="Close navigation"
-      >
-        <X className="w-5 h-5 text-gray-700" />
-      </button>
+    <div className="fixed inset-0 z-50 flex flex-col bg-white">
+      {/* Top Bar */}
+      <div className="absolute top-4 left-4 flex gap-3 items-center z-50">
+        <button
+          onClick={onClose}
+          className="bg-white rounded-full p-3 shadow-lg hover:bg-gray-50 transition"
+          aria-label="Close navigation"
+        >
+          <X className="w-5 h-5 text-gray-700" />
+        </button>
 
-      {/* Map Section */}
-      <div className="flex-1 relative" ref={mapRef} />
+        {/* Live Status */}
+        <div className="bg-red-600 text-white rounded-full px-3 py-1 text-sm font-semibold">
+          {liveStatus === 'live' ? '🔴 LIVE' : liveStatus === 'completed' ? '✅ Completed' : '⏳ Responding'}
+        </div>
+
+        {/* Responder Count */}
+        <div className="bg-blue-600 text-white rounded-full px-3 py-1 text-sm font-semibold">
+          {respondersCount} responder{respondersCount > 1 ? 's' : ''}
+        </div>
+
+        {/* Reconnect Indicator */}
+        {isReconnecting && (
+          <div className="bg-yellow-400 text-black rounded-full px-3 py-1 text-sm font-semibold">
+            Reconnecting...
+          </div>
+        )}
+      </div>
+
+      {/* Map */}
+      <div ref={mapRef} className="flex-1 relative" />
 
       {/* Top Right Info Card */}
       <div className="absolute top-6 right-6 bg-white rounded-2xl shadow-lg p-4 max-w-xs space-y-3">
-        {/* Distance and ETA */}
+        {/* Distance / ETA / Direction */}
         <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-semibold text-gray-600">Distance</span>
+          <div className="flex justify-between text-sm font-semibold text-gray-600">
+            <span>Distance</span>
             <span className="text-lg font-bold text-blue-600">{navInfo.distanceKm.toFixed(1)} km</span>
           </div>
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-semibold text-gray-600">ETA</span>
+          <div className="flex justify-between text-sm font-semibold text-gray-600">
+            <span>ETA</span>
             <span className="text-lg font-bold text-green-600">{navInfo.etaTime}</span>
           </div>
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-semibold text-gray-600">Direction</span>
+          <div className="flex justify-between text-sm font-semibold text-gray-600">
+            <span>Direction</span>
             <span className="text-lg font-bold text-purple-600">{navInfo.direction}</span>
           </div>
         </div>
 
-        {/* Status Selector */}
+        {/* Status Buttons */}
         <div className="pt-3 border-t border-gray-200">
           <p className="text-xs font-semibold text-gray-600 mb-2">Status</p>
           <div className="flex gap-2 flex-wrap">
@@ -204,9 +250,7 @@ export default function ResponderNavigationView({
                 key={s}
                 onClick={() => handleStatusChange(s)}
                 className={`px-3 py-1 rounded-full text-xs font-semibold transition ${
-                  status === s
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  status === s ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                 }`}
               >
                 {s === 'en_route' ? '🔵 Route' : s === 'on_scene' ? '🟢 Scene' : '✅ Done'}
@@ -226,26 +270,21 @@ export default function ResponderNavigationView({
       {/* Bottom Action Bar */}
       <div className="bg-white border-t border-gray-200 p-6 space-y-3">
         <div className="flex gap-3">
-          {/* Call Button */}
           <button
             onClick={handleCall}
             className="flex-1 px-6 py-4 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold flex items-center justify-center gap-2 transition shadow-lg"
           >
-            <Phone className="w-5 h-5" />
-            Call Victim
+            <Phone className="w-5 h-5" /> Call Victim
           </button>
 
-          {/* Navigation Button */}
           <button
             onClick={handleOpenInMaps}
             className="flex-1 px-6 py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold flex items-center justify-center gap-2 transition shadow-lg"
           >
-            <Navigation className="w-5 h-5" />
-            Open Maps
+            <Navigation className="w-5 h-5" /> Open Maps
           </button>
         </div>
 
-        {/* Video Button (if available) */}
         {alert.video_url && (
           <button
             onClick={() => window.open(alert.video_url, '_blank')}
@@ -255,13 +294,11 @@ export default function ResponderNavigationView({
           </button>
         )}
 
-        {/* Complete Button */}
         <button
           onClick={() => handleStatusChange('complete')}
           className="w-full px-6 py-3 bg-gradient-to-r from-green-600 to-green-700 hover:shadow-lg text-white rounded-xl font-bold flex items-center justify-center gap-2 transition"
         >
-          <CheckCircle2 className="w-5 h-5" />
-          Mark as Complete
+          <CheckCircle2 className="w-5 h-5" /> Mark as Complete
         </button>
       </div>
     </div>
