@@ -45,19 +45,18 @@ export default function LivePage() {
   const [isLoading, setIsLoading] = useState(true);
   const [elapsedTime, setElapsedTime] = useState(0);
 
-  // Redirect if not authenticated
-  useEffect(() => {
-    if (authLoading) return; // Wait for auth to load
-    if (!user) {
-      router.push('/auth/login');
-    }
-  }, [user, authLoading, router]);
+ // Redirect if not authenticated
+useEffect(() => {
+  if (!authLoading && !user) {
+    router.replace('/auth/login');
+  }
+}, [authLoading, user, router]);
 
-  // Fetch alerts on mount and subscribe to changes
-  useEffect(() => {
-    if (!user) return;
+// Fetch alerts only when authenticated
+useEffect(() => {
+  if (!user) return;
 
-    const fetchAlerts = async () => {
+  const fetchAlerts = async () => {
       try {
         setIsLoading(true);
         const { data, error } = await supabase
@@ -112,6 +111,10 @@ export default function LivePage() {
 
     return () => clearInterval(interval);
   }, [selectedAlert]);
+
+  // Prevent rendering before auth resolves
+  if (authLoading) return null;
+  if (!user) return null;
 
   // Handle location updates from background tracker
   const handleLocationUpdate = (lat: number, lng: number) => {
