@@ -10,13 +10,10 @@ interface GoLiveButtonProps {
 }
 
 export default function GoLiveButton({ onStart }: GoLiveButtonProps) {
-  /** ---------------- STATE ---------------- */
   const [status, setStatus] = useState<LiveStatus>('idle');
   const [isFullScreen, setIsFullScreen] = useState(false);
-  const [isLiveUIActive, setIsLiveUIActive] = useState(false);
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment');
 
-  /** ---------------- REFS ---------------- */
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -24,10 +21,9 @@ export default function GoLiveButton({ onStart }: GoLiveButtonProps) {
   const durationRef = useRef(0);
   const isRecordingRef = useRef(false);
 
-  /** ---------------- MEDIA ---------------- */
   const requestMedia = useCallback(async (mode?: 'user' | 'environment') => {
     if (mediaStreamRef.current) {
-      mediaStreamRef.current.getTracks().forEach(track => track.stop());
+      mediaStreamRef.current.getTracks().forEach((t) => t.stop());
     }
 
     const stream = await navigator.mediaDevices.getUserMedia({
@@ -36,99 +32,73 @@ export default function GoLiveButton({ onStart }: GoLiveButtonProps) {
     });
 
     mediaStreamRef.current = stream;
-
-    if (videoRef.current) {
-      videoRef.current.srcObject = null;
-      videoRef.current.srcObject = stream;
-    }
+    if (videoRef.current) videoRef.current.srcObject = stream;
 
     return stream;
   }, [facingMode]);
 
-  /** ---------------- START LIVE ---------------- */
   const startLive = useCallback(async () => {
     try {
       setStatus('preparing');
       setIsFullScreen(true);
-      setIsLiveUIActive(true);
 
-      // Open camera + mic immediately
       await requestMedia();
 
-      // Start MediaRecorder safely
       const recorder = new MediaRecorder(mediaStreamRef.current!);
       mediaRecorderRef.current = recorder;
       recorder.start();
       isRecordingRef.current = true;
 
-      // Start timer
       durationRef.current = 0;
       timerRef.current = setInterval(() => {
         durationRef.current += 1;
         if (videoRef.current) {
-          const timerEl = videoRef.current.parentElement?.querySelector<HTMLSpanElement>('#live-timer');
-          if (timerEl) timerEl.textContent = formatTime(durationRef.current);
+          const display = videoRef.current.parentElement?.querySelector<HTMLSpanElement>('#live-timer');
+          if (display) display.textContent = formatTime(durationRef.current);
         }
       }, 1000);
 
       setStatus('live');
       toast.success('🔴 You are LIVE');
 
-      // Call optional onStart callback (e.g., Supabase alert creation)
       if (onStart) await onStart();
     } catch (err) {
       console.error(err);
-      toast.error('Failed to start live stream');
+      toast.error('Failed to start live');
       stopLive();
     }
-  }, [onStart, requestMedia]);
+  }, [requestMedia, onStart]);
 
-  /** ---------------- STOP LIVE ---------------- */
   const stopLive = useCallback(() => {
     if (!isRecordingRef.current) return;
-
     isRecordingRef.current = false;
+
     if (timerRef.current) clearInterval(timerRef.current);
 
-    try {
-      if (mediaRecorderRef.current?.state === 'recording') {
-        mediaRecorderRef.current.stop();
-      }
-    } catch (err) {
-      console.warn('MediaRecorder already stopped', err);
-    }
-
-    mediaStreamRef.current?.getTracks().forEach(track => track.stop());
+    if (mediaRecorderRef.current?.state === 'recording') mediaRecorderRef.current.stop();
+    mediaStreamRef.current?.getTracks().forEach((t) => t.stop());
     mediaStreamRef.current = null;
 
     setStatus('stopped');
-    setIsLiveUIActive(false);
     setIsFullScreen(false);
     durationRef.current = 0;
   }, []);
 
-  /** ---------------- CAMERA SWITCH ---------------- */
   const switchCamera = useCallback(async () => {
-    if (isRecordingRef.current) {
-      toast.warning('Stop live before switching camera');
-      return;
-    }
-
+    if (isRecordingRef.current) return toast.warning('Stop live before switching camera');
     const newMode = facingMode === 'user' ? 'environment' : 'user';
     setFacingMode(newMode);
     await requestMedia(newMode);
   }, [facingMode, requestMedia]);
 
-  /** ---------------- CLEANUP ---------------- */
   useEffect(() => {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
-      mediaStreamRef.current?.getTracks().forEach(track => track.stop());
+      mediaStreamRef.current?.getTracks().forEach((t) => t.stop());
     };
   }, []);
 
-  /** ---------------- FULLSCREEN LIVE UI ---------------- */
-  if (isFullScreen && isLiveUIActive) {
+  if (isFullScreen && status === 'live') {
     return (
       <div className="fixed inset-0 z-50 bg-black text-white flex flex-col">
         <video ref={videoRef} autoPlay playsInline muted className="flex-1 object-cover" />
@@ -137,12 +107,7 @@ export default function GoLiveButton({ onStart }: GoLiveButtonProps) {
           <span id="live-timer" className="bg-red-600 px-3 py-1 rounded-full text-sm font-semibold">
             🔴 LIVE 0:00
           </span>
-          <button
-            onClick={() => { if (confirm('End live stream?')) stopLive(); }}
-            className="bg-black/60 px-3 py-1 rounded-lg"
-          >
-            ✕
-          </button>
+          <button onClick={() => stopLive()} className="bg-black/60 px-3 py-1 rounded-lg">✕</button>
         </div>
 
         <div className="absolute bottom-0 left-0 right-0 pb-24 md:pb-10 px-6">
@@ -155,7 +120,6 @@ export default function GoLiveButton({ onStart }: GoLiveButtonProps) {
     );
   }
 
-  /** ---------------- DEFAULT BUTTON ---------------- */
   return (
     <button
       onClick={startLive}
@@ -166,7 +130,6 @@ export default function GoLiveButton({ onStart }: GoLiveButtonProps) {
   );
 }
 
-/** ---------------- HELPERS ---------------- */
 function formatTime(seconds: number) {
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
