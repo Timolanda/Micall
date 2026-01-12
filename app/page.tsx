@@ -2,9 +2,10 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import dynamic from 'next/dynamic';
+
 import GoLiveButton from '../components/GoLiveButton';
 import SOSButton from '../components/SOSButton';
-import ResponderMap from '../components/ResponderMap';
 import LoadingIndicator from '../components/LoadingIndicator';
 import Modal from '../components/Modal';
 
@@ -15,6 +16,9 @@ import { useAuth } from '../hooks/useAuth';
 
 import { Users, AlertTriangle, MapPin } from 'lucide-react';
 import { toast } from 'sonner';
+
+/* ---------------- DYNAMIC IMPORTS ---------------- */
+const ResponderMap = dynamic(() => import('../components/ResponderMap'), { ssr: false });
 
 export default function HomePage() {
   const router = useRouter();
@@ -60,9 +64,9 @@ export default function HomePage() {
     checkAuth();
   }, [router]);
 
-  /* ---------------- GEOLOCATION ---------------- */
+  /* ---------------- GEOLOCATION (CLIENT ONLY) ---------------- */
   useEffect(() => {
-    if (!isAuthenticated || !navigator.geolocation) return;
+    if (!isAuthenticated || typeof window === 'undefined' || !navigator.geolocation) return;
 
     const watchId = navigator.geolocation.watchPosition(
       (pos) => {
@@ -72,7 +76,9 @@ export default function HomePage() {
       { enableHighAccuracy: true }
     );
 
-    return () => navigator.geolocation.clearWatch(watchId);
+    return () => {
+      if (navigator.geolocation) navigator.geolocation.clearWatch(watchId);
+    };
   }, [isAuthenticated]);
 
   /* ---------------- RESPONDER COUNT ---------------- */
@@ -243,17 +249,13 @@ export default function HomePage() {
           </div>
 
           <div className="h-64 rounded-lg overflow-hidden">
-            <ResponderMap
-              responder={{
-                lat: userLocation?.[0] ?? 0,
-                lng: userLocation?.[1] ?? 0,
-              }}
-              victim={{
-                lat: userLocation?.[0] ?? 0,
-                lng: userLocation?.[1] ?? 0,
-              }}
-              onClose={() => {}}
-            />
+            {typeof window !== 'undefined' && userLocation && (
+              <ResponderMap
+                responder={{ lat: userLocation[0], lng: userLocation[1] }}
+                victim={{ lat: userLocation[0], lng: userLocation[1] }}
+                onClose={() => {}}
+              />
+            )}
           </div>
         </div>
       </div>

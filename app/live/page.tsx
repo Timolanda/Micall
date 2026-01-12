@@ -8,24 +8,18 @@ import { supabase } from '@/utils/supabaseClient';
 
 import AlertStoriesRow from '@/components/alerts/AlertStoriesRow';
 import AlertStoryViewer from '@/components/alerts/AlertStoryViewer';
-import ResponderMap, { LatLng } from '@/components/ResponderMap';
 import { Alert } from '@/components/alerts/types';
+import { getIgnoredAlertIds, ignoreAlertFor30Min } from '@/utils/alertIgnore';
 
-import {
-  getIgnoredAlertIds,
-  ignoreAlertFor30Min,
-} from '@/utils/alertIgnore';
-
-/* ---------------- CONSTANTS ---------------- */
 const MAP_HEIGHT = 180;
 
-/* ---------------- SAFE DYNAMIC IMPORT ---------------- */
+/* ---------------- SAFE DYNAMIC IMPORTS ---------------- */
 const ResponderLiveViewer = dynamic(
   () => import('@/components/ResponderLiveViewer'),
   { ssr: false }
 );
+const ResponderMap = dynamic(() => import('@/components/ResponderMap'), { ssr: false });
 
-/* ---------------- TYPES ---------------- */
 export interface AlertWithLocation extends Alert {
   lat: number;
   lng: number;
@@ -39,7 +33,7 @@ export default function LivePage() {
   const [activeAlertId, setActiveAlertId] = useState<number | null>(null);
   const [showStories, setShowStories] = useState(false);
   const [ignoredIds, setIgnoredIds] = useState<number[]>([]);
-  const [responderLocation, setResponderLocation] = useState<LatLng | null>(null);
+  const [responderLocation, setResponderLocation] = useState<{ lat: number; lng: number } | null>(null);
 
   /* ---------------- AUTH GUARD ---------------- */
   useEffect(() => {
@@ -48,9 +42,9 @@ export default function LivePage() {
     }
   }, [loading, user, router]);
 
-  /* ---------------- RESPONDER LOCATION ---------------- */
+  /* ---------------- RESPONDER LOCATION (CLIENT ONLY) ---------------- */
   useEffect(() => {
-    if (!navigator.geolocation) return;
+    if (typeof window === 'undefined' || !navigator.geolocation) return;
 
     const id = navigator.geolocation.watchPosition(
       (pos) => {
@@ -63,7 +57,9 @@ export default function LivePage() {
       { enableHighAccuracy: true }
     );
 
-    return () => navigator.geolocation.clearWatch(id);
+    return () => {
+      if (navigator.geolocation) navigator.geolocation.clearWatch(id);
+    };
   }, []);
 
   /* ---------------- FETCH ALERTS ---------------- */
@@ -120,8 +116,8 @@ export default function LivePage() {
     [visibleAlerts, activeAlertId]
   );
 
-  /* ---------------- RESPONDER LIVE VIEW ---------------- */
-  if (activeAlert && user) {
+  /* ---------------- CLIENT-ONLY LIVE VIEW ---------------- */
+  if (typeof window !== 'undefined' && activeAlert && user) {
     return (
       <ResponderLiveViewer
         alertId={String(activeAlert.id)}
@@ -132,10 +128,8 @@ export default function LivePage() {
     );
   }
 
-  /* ---------------- UI ---------------- */
   return (
     <div className="relative min-h-screen bg-black text-white">
-      {/* HEADER */}
       <header className="sticky top-0 z-20 px-4 py-4 border-b border-white/10 bg-black">
         <h1 className="text-lg font-semibold">Live Emergency Alerts</h1>
         <p className="text-xs opacity-70">
@@ -143,11 +137,7 @@ export default function LivePage() {
         </p>
       </header>
 
-      {/* ALERT LIST (SCROLLABLE) */}
-      <div
-        className="overflow-y-auto"
-        style={{ paddingBottom: MAP_HEIGHT }}
-      >
+      <div className="overflow-y-auto" style={{ paddingBottom: MAP_HEIGHT }}>
         {visibleAlerts.length > 0 ? (
           <AlertStoriesRow
             alerts={visibleAlerts}
@@ -157,26 +147,21 @@ export default function LivePage() {
             }}
           />
         ) : (
-          <div className="p-6 text-center opacity-60">
-            No active alerts near you.
-          </div>
+          <div className="p-6 text-center opacity-60">No active alerts near you.</div>
         )}
       </div>
 
       {/* FIXED MAP */}
-      <div
-        className="fixed left-0 right-0 bottom-16 z-10 bg-black"
-        style={{ height: MAP_HEIGHT }}
-      >
-        <ResponderMap
-          responder={responderLocation ?? undefined}
-          victim={
-            activeAlert
-              ? { lat: activeAlert.lat, lng: activeAlert.lng }
-              : undefined
-          }
-          maxHeight={`${MAP_HEIGHT}px`}
-        />
+      <div className="fixed left-0 right-0 bottom-16 z-10 bg-black" style={{ height: MAP_HEIGHT }}>
+        {typeof window !== 'undefined' && (
+          <ResponderMap
+            responder={responderLocation ?? undefined}
+            victim={
+              activeAlert ? { lat: activeAlert.lat, lng: activeAlert.lng } : undefined
+            }
+            maxHeight={`${MAP_HEIGHT}px`}
+          />
+        )}
       </div>
 
       {/* STORY VIEWER */}
