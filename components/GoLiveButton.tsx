@@ -1,137 +1,172 @@
 'use client';
 
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useRef, useState } from 'react';
+import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
+import { Button } from '@/components/ui/button';
 
-type LiveStatus = 'idle' | 'preparing' | 'live' | 'stopped';
+const ICE_SERVERS: RTCConfiguration = {
+  iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+};
 
-interface GoLiveButtonProps {
-  onStart?: () => Promise<void>;
+interface Props {
+  /**
+   * Parent should return alertId when Go Live is triggered.
+   * app/page.tsx already does this correctly.
+   */
+  onStart: () => Promise<string | null>;
+  alertId: string | null;
 }
 
-export default function GoLiveButton({ onStart }: GoLiveButtonProps) {
-  const [status, setStatus] = useState<LiveStatus>('idle');
-  const [isFullScreen, setIsFullScreen] = useState(false);
-  const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment');
+export default function GoLiveButton({ onStart, alertId: parentAlertId }: Props) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const peerRef = useRef<RTCPeerConnection | null>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
 
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const mediaStreamRef = useRef<MediaStream | null>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
-  const durationRef = useRef(0);
-  const isRecordingRef = useRef(false);
+  const [isLive, setIsLive] = useState(false);
+  const [starting, setStarting] = useState(false);
+  const [alertId, setAlertId] = useState<string | null>(parentAlertId);
 
-  const requestMedia = useCallback(async (mode?: 'user' | 'environment') => {
-    if (mediaStreamRef.current) {
-      mediaStreamRef.current.getTracks().forEach((t) => t.stop());
-    }
+  /* ---------------- START LIVE ---------------- */
+  const startLive = async () => {
+    if (starting || isLive) return;
+    setStarting(true);
 
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: mode || facingMode },
-      audio: true,
-    });
-
-    mediaStreamRef.current = stream;
-    if (videoRef.current) videoRef.current.srcObject = stream;
-
-    return stream;
-  }, [facingMode]);
-
-  const startLive = useCallback(async () => {
     try {
-      setStatus('preparing');
-      setIsFullScreen(true);
+      // 1️⃣ Ensure alertId exists
+      let generatedAlertId = alertId ?? (await onStart());
+      if (!generatedAlertId) throw new Error('Alert creation failed');
+      setAlertId(generatedAlertId);
 
-      await requestMedia();
+      // 2️⃣ Request camera + mic
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: true });
+      } catch (err) {
+        throw new Error('Camera/Microphone access denied or unavailable');
+      }
+      streamRef.current = stream;
+      if (videoRef.current) videoRef.current.srcObject = stream;
 
-      const recorder = new MediaRecorder(mediaStreamRef.current!);
-      mediaRecorderRef.current = recorder;
+      // 3️⃣ Setup MediaRecorder with fallback MIME type
+      const mimeType = MediaRecorder.isTypeSupported('video/webm')
+        ? 'video/webm'
+        : MediaRecorder.isTypeSupported('video/mp4')
+        ? 'video/mp4'
+        : '';
+      if (!mimeType) throw new Error('No supported MIME type for recording');
+
+      const recorder = new MediaRecorder(stream, { mimeType });
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunksRef.current.push(e.data);
+      };
       recorder.start();
-      isRecordingRef.current = true;
+      recorderRef.current = recorder;
 
-      durationRef.current = 0;
-      timerRef.current = setInterval(() => {
-        durationRef.current += 1;
-        if (videoRef.current) {
-          const display = videoRef.current.parentElement?.querySelector<HTMLSpanElement>('#live-timer');
-          if (display) display.textContent = formatTime(durationRef.current);
+      // 4️⃣ Setup WebRTC
+      const pc = new RTCPeerConnection(ICE_SERVERS);
+      peerRef.current = pc;
+      stream.getTracks().forEach((t) => pc.addTrack(t, stream));
+
+      pc.onicecandidate = async (e) => {
+        if (e.candidate) {
+          try {
+            await supabase.from('webrtc_signals').insert({
+              alert_id: generatedAlertId,
+              type: 'ice',
+              payload: e.candidate,
+            });
+          } catch (err) {
+            console.warn('Failed to send ICE candidate:', err);
+          }
         }
-      }, 1000);
+      };
 
-      setStatus('live');
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+
+      const { error: offerError } = await supabase.from('webrtc_signals').insert({
+        alert_id: generatedAlertId,
+        type: 'offer',
+        payload: offer,
+      });
+      if (offerError) throw offerError;
+
+      setIsLive(true);
       toast.success('🔴 You are LIVE');
-
-      if (onStart) await onStart();
     } catch (err) {
-      console.error(err);
-      toast.error('Failed to start live');
-      stopLive();
+      console.error('GoLive error:', err);
+      toast.error(err instanceof Error ? err.message : 'Failed to go live');
+    } finally {
+      setStarting(false);
     }
-  }, [requestMedia, onStart]);
+  };
 
-  const stopLive = useCallback(() => {
-    if (!isRecordingRef.current) return;
-    isRecordingRef.current = false;
+  /* ---------------- STOP LIVE ---------------- */
+  const stopLive = async () => {
+    try {
+      // Stop recorder & tracks
+      recorderRef.current?.stop();
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      peerRef.current?.close();
 
-    if (timerRef.current) clearInterval(timerRef.current);
+      setIsLive(false);
 
-    if (mediaRecorderRef.current?.state === 'recording') mediaRecorderRef.current.stop();
-    mediaStreamRef.current?.getTracks().forEach((t) => t.stop());
-    mediaStreamRef.current = null;
+      // Prepare recording
+      const blob = new Blob(chunksRef.current, { type: 'video/webm' });
+      chunksRef.current = [];
 
-    setStatus('stopped');
-    setIsFullScreen(false);
-    durationRef.current = 0;
-  }, []);
+      if (alertId) {
+        // Upload to Supabase Storage
+        const { error: uploadError } = await supabase.storage
+          .from('evidence')
+          .upload(`alerts/${alertId}.webm`, blob, { upsert: true });
+        if (uploadError) throw uploadError;
 
-  const switchCamera = useCallback(async () => {
-    if (isRecordingRef.current) return toast.warning('Stop live before switching camera');
-    const newMode = facingMode === 'user' ? 'environment' : 'user';
-    setFacingMode(newMode);
-    await requestMedia(newMode);
-  }, [facingMode, requestMedia]);
+        // Update alert status
+        const { error: updateError } = await supabase
+          .from('emergency_alerts')
+          .update({ status: 'ended' })
+          .eq('id', alertId);
+        if (updateError) throw updateError;
+      }
 
-  useEffect(() => {
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-      mediaStreamRef.current?.getTracks().forEach((t) => t.stop());
-    };
-  }, []);
+      toast.success('Live ended & recording saved');
+    } catch (err) {
+      console.error('StopLive error:', err);
+      toast.error(err instanceof Error ? err.message : 'Error ending live');
+    }
+  };
 
-  if (isFullScreen && status === 'live') {
-    return (
-      <div className="fixed inset-0 z-50 bg-black text-white flex flex-col">
-        <video ref={videoRef} autoPlay playsInline muted className="flex-1 object-cover" />
-
-        <div className="absolute top-4 left-4 right-4 flex justify-between items-center">
-          <span id="live-timer" className="bg-red-600 px-3 py-1 rounded-full text-sm font-semibold">
-            🔴 LIVE 0:00
-          </span>
-          <button onClick={() => stopLive()} className="bg-black/60 px-3 py-1 rounded-lg">✕</button>
-        </div>
-
-        <div className="absolute bottom-0 left-0 right-0 pb-24 md:pb-10 px-6">
-          <div className="bg-black/60 backdrop-blur-md rounded-2xl p-4 flex justify-around items-center">
-            <button onClick={switchCamera} className="px-4 py-2 bg-white/10 rounded-lg">🔄 Camera</button>
-            <button onClick={stopLive} className="px-6 py-3 bg-red-600 rounded-full font-bold">END LIVE</button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
+  /* ---------------- UI ---------------- */
   return (
-    <button
-      onClick={startLive}
-      className="w-full py-4 rounded-xl bg-red-600 text-white font-bold text-lg shadow-lg active:scale-95 transition"
-    >
-      🔴 Go Live
-    </button>
-  );
-}
+    <div className="space-y-4">
+      <video
+        ref={videoRef}
+        autoPlay
+        muted
+        playsInline
+        className="w-full h-[400px] rounded-xl bg-black object-cover"
+      />
 
-function formatTime(seconds: number) {
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  return `${m}:${s.toString().padStart(2, '0')}`;
+      {!isLive ? (
+        <Button
+          disabled={starting}
+          onClick={startLive}
+          className="w-full py-4 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl"
+        >
+          {starting ? 'Starting…' : '🔴 Go Live'}
+        </Button>
+      ) : (
+        <Button
+          onClick={stopLive}
+          className="w-full py-4 bg-black text-white rounded-xl"
+        >
+          End Live
+        </Button>
+      )}
+    </div>
+  );
 }

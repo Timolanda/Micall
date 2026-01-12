@@ -1,333 +1,216 @@
-"use client";
+'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
-interface Alert {
-  id: number;
+/* =======================
+   TYPES
+======================= */
+export interface LatLng {
   lat: number;
   lng: number;
-  type: string;
-  message: string;
-  created_at: string;
-  status: string;
-  user_id: string;
 }
 
-interface ResponderMapProps {
-  alerts?: Alert[];
-  onAlertClick?: (alert: Alert) => void;
-  responderLat?: number;
-  responderLng?: number;
+type MapMode = 'preview' | 'live' | 'navigation';
+
+interface Props {
+  responder?: LatLng;
+  victim?: LatLng;
+  otherResponders?: LatLng[];
+  mode?: MapMode;
+  onClose?: () => void;
+  maxHeight?: string;
 }
 
-export default function ResponderMap({ alerts = [], onAlertClick, responderLat, responderLng }: ResponderMapProps) {
-  const mapRef = useRef<HTMLDivElement>(null);
-  const leafletMap = useRef<any>(null);
-  const userMarker = useRef<any>(null);
-  const [userLocation, setUserLocation] = useState<[number, number] | null>(
-    responderLat && responderLng ? [responderLat, responderLng] : null
-  );
-  const alertMarkers = useRef<any[]>([]);
-  const [isMapLoaded, setIsMapLoaded] = useState(false);
-  const [mapError, setMapError] = useState<string | null>(null);
-  const leafletRef = useRef<any>(null);
-  const lastLocationUpdate = useRef<number>(0);
-  const responderMarkers = useRef<any[]>([]);
+/* =======================
+   CONSTANTS
+======================= */
+const BOTTOM_NAV_HEIGHT = 64; // MUST match BottomNav
 
-  // Create responder icon with status-based colors
-  const createResponderIcon = (status?: string) => {
-    if (!leafletRef.current) return null;
-    const L = leafletRef.current;
+/* =======================
+   FIX LEAFLET ICONS
+======================= */
+delete (L.Icon.Default.prototype as any)._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl:
+    'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+  iconUrl:
+    'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+  shadowUrl:
+    'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+});
 
-    const statusColors: Record<string, string> = {
-      'available': '#10b981',      // Green
-      'en-route': '#3b82f6',       // Blue
-      'on-scene': '#f59e0b',       // Amber
-      'complete': '#8b5cf6',       // Purple
-    };
+/* =======================
+   ICON CREATOR
+======================= */
+const createIcon = (emoji: string) =>
+  L.divIcon({
+    className: 'text-xl',
+    html: emoji,
+    iconSize: [32, 32],
+  });
 
-    const color = statusColors[status || 'available'] || '#ef4444'; // Default red
-    
-    return L.divIcon({
-      className: 'custom-responder-marker',
-      html: `
-        <div style="
-          width: 20px; 
-          height: 20px; 
-          background: ${color}; 
-          border: 2px solid white; 
-          border-radius: 50%; 
-          box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-          position: relative;
-        ">
-          <div style="
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            width: 6px;
-            height: 6px;
-            background: white;
-            border-radius: 50%;
-          "></div>
-        </div>
-      `,
-      iconSize: [20, 20],
-      iconAnchor: [10, 10],
-    });
-  };
+/* =======================
+   MAP ENGINE
+======================= */
+export default function ResponderMap({
+  responder,
+  victim,
+  otherResponders = [],
+  mode = 'preview',
+  onClose,
+  maxHeight = '100%',
+}: Props) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const mapRef = useRef<L.Map | null>(null);
 
-  // Create alert icon with type-based colors
-  const createAlertIcon = (type?: string) => {
-    if (!leafletRef.current) return null;
-    const L = leafletRef.current;
+  const responderMarkerRef = useRef<L.Marker | null>(null);
+  const victimMarkerRef = useRef<L.Marker | null>(null);
+  const otherMarkersRef = useRef<L.Marker[]>([]);
+  const routeRef = useRef<L.Polyline | null>(null);
 
-    const typeColors: Record<string, string> = {
-      'SOS': '#ef4444',        // Red
-      'Go Live': '#f97316',    // Orange
-      'video': '#3b82f6',      // Blue
-      'Health': '#ec4899',     // Pink
-      'Fire': '#dc2626',       // Dark Red
-      'Assault': '#7c3aed',    // Violet
-      'Accident': '#f59e0b',   // Amber
-    };
+  const [distanceText, setDistanceText] = useState<string | null>(null);
 
-    const color = typeColors[type || 'SOS'] || '#ef4444';
-    
-    return L.divIcon({
-      className: 'custom-alert-marker',
-      html: `
-        <div style="
-          width: 28px; 
-          height: 28px; 
-          background: ${color}; 
-          border: 3px solid white; 
-          border-radius: 50%; 
-          box-shadow: 0 0 10px ${color}80;
-          position: relative;
-          animation: pulse 2s infinite;
-        ">
-          <div style="
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            width: 8px;
-            height: 8px;
-            background: white;
-            border-radius: 50%;
-          "></div>
-          <style>
-            @keyframes pulse {
-              0%, 100% { transform: scale(1); }
-              50% { transform: scale(1.1); }
-            }
-          </style>
-        </div>
-      `,
-      iconSize: [28, 28],
-      iconAnchor: [14, 14],
-    });
-  };
-
-  // Get user location with throttling (5 seconds minimum between updates)
+  /* ---------------- CREATE MAP ---------------- */
   useEffect(() => {
-    if (!navigator.geolocation) {
-      console.log('Geolocation not supported, using fallback location');
-      setUserLocation([40.7128, -74.0060]);
-      return;
-    }
-    
-    const watchId = navigator.geolocation.watchPosition(
-      (pos) => {
-        const now = Date.now();
-        if (now - lastLocationUpdate.current >= 5000) {
-          const coords: [number, number] = [pos.coords.latitude, pos.coords.longitude];
-          lastLocationUpdate.current = now;
-          setUserLocation(coords);
-          if (leafletMap.current && userMarker.current) {
-            userMarker.current.setLatLng(coords);
-            leafletMap.current.setView(coords, 14);
-          }
-        }
-      },
-      (err) => {
-        console.error('Geolocation error:', err);
-        setUserLocation([40.7128, -74.0060]);
-      },
-      { 
-        enableHighAccuracy: true, 
-        timeout: 10000, 
-        maximumAge: 5000
-      }
+    if (!containerRef.current || mapRef.current) return;
+
+    const map = L.map(containerRef.current, {
+      zoomControl: mode !== 'preview',
+      attributionControl: false,
+    }).setView([-1.286389, 36.817223], 13);
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+    }).addTo(map);
+
+    // 🔒 Force Leaflet BELOW navbar
+    const panes = containerRef.current.querySelectorAll(
+      '.leaflet-pane, .leaflet-top, .leaflet-bottom'
     );
-    
-    return () => navigator.geolocation.clearWatch(watchId);
-  }, []);
+    panes.forEach((pane) => {
+      (pane as HTMLElement).style.zIndex = '10';
+    });
 
-  // Initialize map
-  useEffect(() => {
-    if (!mapRef.current || leafletMap.current) return;
+    mapRef.current = map;
 
-    const initMap = async () => {
-      try {
-        const L = await import('leaflet');
-        leafletRef.current = L;
-        
-        if (leafletMap.current) return;
-        
-        const createUserIcon = () => {
-          return L.divIcon({
-            className: 'custom-user-marker',
-            html: `
-              <div style="
-                width: 20px; 
-                height: 20px; 
-                background: #3b82f6; 
-                border: 3px solid white; 
-                border-radius: 50%; 
-                box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-                position: relative;
-              ">
-                <div style="
-                  position: absolute;
-                  top: 50%;
-                  left: 50%;
-                  transform: translate(-50%, -50%);
-                  width: 6px;
-                  height: 6px;
-                  background: white;
-                  border-radius: 50%;
-                "></div>
-              </div>
-            `,
-            iconSize: [20, 20],
-            iconAnchor: [10, 10],
-          });
-        };
-
-        if (mapRef.current) {
-          const defaultLocation: [number, number] = userLocation || [40.7128, -74.0060];
-          
-          leafletMap.current = L.map(mapRef.current, {
-            center: defaultLocation,
-            zoom: 14,
-            zoomControl: true,
-            attributionControl: false,
-          });
-          
-          L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            minZoom: 10,
-            maxZoom: 18,
-            attribution: '© OpenStreetMap contributors'
-          }).addTo(leafletMap.current);
-          
-          userMarker.current = L.marker(defaultLocation, { 
-            icon: createUserIcon(),
-            title: 'Your Location'
-          }).addTo(leafletMap.current);
-          
-          setIsMapLoaded(true);
-        }
-      } catch (error) {
-        console.error('Map initialization error:', error);
-        setMapError('Failed to load map');
-      }
-    };
-
-    initMap();
+    setTimeout(() => map.invalidateSize(), 0);
 
     return () => {
-      if (leafletMap.current) {
-        leafletMap.current.remove();
-        leafletMap.current = null;
-        userMarker.current = null;
-        responderMarkers.current = [];
-        setIsMapLoaded(false);
-      }
+      map.remove();
+      mapRef.current = null;
     };
-  }, [userLocation]);
+  }, [mode]);
 
-  // Update user marker and render alert markers
+  /* ---------------- UPDATE MARKERS ---------------- */
   useEffect(() => {
-    if (!userLocation || !leafletMap.current || !isMapLoaded) return;
+    const map = mapRef.current;
+    if (!map) return;
 
-    const updateMap = async () => {
-      try {
-        const L = await import('leaflet');
-        
-        userMarker.current?.setLatLng(userLocation);
-        leafletMap.current.setView(userLocation, 14);
-        
-        if (alerts && alerts.length > 0) {
-          alertMarkers.current.forEach((m) => m.remove());
-          alertMarkers.current = [];
-          
-          alerts.forEach((alert: Alert) => {
-            const alertIcon = createAlertIcon(alert.type);
-            const marker = L.marker([alert.lat, alert.lng], { 
-              icon: alertIcon,
-              title: `${alert.type} - ${alert.message}`
-            }).addTo(leafletMap.current!);
-            
-            marker.bindPopup(`
-              <div style="font-family: sans-serif; font-size: 12px; min-width: 180px;">
-                <strong style="color: #ef4444;">${alert.type}</strong><br/>
-                <span style="color: #666;">${alert.message}</span><br/>
-                <span style="font-size: 11px; color: #999;">Created: ${new Date(alert.created_at).toLocaleTimeString()}</span><br/>
-                <button style="
-                  margin-top: 8px;
-                  padding: 4px 8px;
-                  background: #3b82f6;
-                  color: white;
-                  border: none;
-                  border-radius: 4px;
-                  cursor: pointer;
-                  font-weight: bold;
-                  width: 100%;
-                " onclick="alert('Navigate to this incident')">
-                  Navigate
-                </button>
-              </div>
-            `, { 
-              maxWidth: 200,
-              className: 'alert-popup'
-            });
-            
-            marker.on('click', () => {
-              if (onAlertClick) {
-                onAlertClick(alert);
-              }
-            });
-            
-            alertMarkers.current.push(marker);
-          });
+    responderMarkerRef.current?.remove();
+    victimMarkerRef.current?.remove();
+    routeRef.current?.remove();
+    otherMarkersRef.current.forEach((m) => m.remove());
+    otherMarkersRef.current = [];
+    setDistanceText(null);
+
+    let bounds: L.LatLngBounds | null = null;
+
+    if (responder) {
+      const m = L.marker(
+        [responder.lat, responder.lng],
+        { icon: createIcon('🧍‍♂️') }
+      ).addTo(map);
+      responderMarkerRef.current = m;
+      bounds = L.latLngBounds([m.getLatLng()]);
+    }
+
+    if (mode === 'live') {
+      otherResponders.forEach((r) => {
+        const m = L.marker(
+          [r.lat, r.lng],
+          { icon: createIcon('👥') }
+        ).addTo(map);
+        otherMarkersRef.current.push(m);
+        bounds = bounds ? bounds.extend(m.getLatLng()) : L.latLngBounds([m.getLatLng()]);
+      });
+    }
+
+    if (victim) {
+      const m = L.marker(
+        [victim.lat, victim.lng],
+        { icon: createIcon('🚨') }
+      ).addTo(map);
+      victimMarkerRef.current = m;
+      bounds = bounds ? bounds.extend(m.getLatLng()) : L.latLngBounds([m.getLatLng()]);
+    }
+
+    if (responder && victim) {
+      const line = L.polyline(
+        [
+          [responder.lat, responder.lng],
+          [victim.lat, victim.lng],
+        ],
+        {
+          color: mode === 'navigation' ? '#2563eb' : '#ef4444',
+          weight: mode === 'navigation' ? 5 : 3,
+          dashArray: mode === 'preview' ? '6 6' : undefined,
         }
-      } catch (error) {
-        console.error('Error updating map:', error);
-      }
-    };
+      ).addTo(map);
 
-    updateMap();
-  }, [userLocation, alerts, onAlertClick, isMapLoaded]);
+      routeRef.current = line;
 
-  if (mapError) {
-    return (
-      <div className="w-full h-full bg-gray-800 rounded-xl flex items-center justify-center">
-        <div className="text-center">
-          <div className="text-red-400 mb-2">⚠️</div>
-          <p className="text-sm text-gray-400">{mapError}</p>
-        </div>
-      </div>
-    );
-  }
+      const R = 6371;
+      const dLat = ((victim.lat - responder.lat) * Math.PI) / 180;
+      const dLng = ((victim.lng - responder.lng) * Math.PI) / 180;
+      const a =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos(responder.lat * Math.PI / 180) *
+          Math.cos(victim.lat * Math.PI / 180) *
+          Math.sin(dLng / 2) ** 2;
 
+      const distanceKm = 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      const etaMin = Math.max(1, Math.round((distanceKm / 40) * 60));
+
+      setDistanceText(`Distance ${distanceKm.toFixed(1)} km · ETA ${etaMin} min`);
+    }
+
+    if (bounds && bounds.isValid()) {
+      map.fitBounds(bounds, {
+        padding: [40, 40],
+        animate: false,
+      });
+    }
+
+    setTimeout(() => map.invalidateSize(), 100);
+  }, [responder, victim, otherResponders, mode]);
+
+  /* ---------------- UI ---------------- */
   return (
-    <div 
-      ref={mapRef} 
-      className="w-full h-full rounded-xl"
-      style={{ minHeight: '256px' }}
-    />
+    <div
+      className="relative w-full overflow-hidden"
+      style={{
+        height: maxHeight,
+        paddingBottom: `${BOTTOM_NAV_HEIGHT}px`,
+      }}
+    >
+      {onClose && (
+        <button
+          onClick={onClose}
+          className="absolute top-2 right-2 z-20 bg-black/70 text-white px-3 py-1 rounded-lg"
+        >
+          ✕
+        </button>
+      )}
+
+      <div ref={containerRef} className="w-full h-full rounded-lg" />
+
+      {distanceText && mode !== 'preview' && (
+        <div className="absolute bottom-4 left-4 z-20 bg-black/70 text-white text-sm px-3 py-1 rounded-lg">
+          {distanceText}
+        </div>
+      )}
+    </div>
   );
 }
