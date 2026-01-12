@@ -1,9 +1,10 @@
 'use client';
-import React, { useState } from 'react';
-import { motion } from 'motion/react';
-import {cn} from "@/lib/utils"
 
-interface LiquidGlassCardProps {
+import React, { useState } from 'react';
+import { motion, HTMLMotionProps, Variants, Transition } from 'motion/react';
+import { cn } from '@/lib/utils';
+
+interface LiquidGlassCardProps extends Omit<HTMLMotionProps<'div'>, 'onClick'> {
   children: React.ReactNode;
   className?: string;
   draggable?: boolean;
@@ -35,13 +36,14 @@ export const LiquidGlassCard = ({
 }: LiquidGlassCardProps) => {
   const [isExpanded, setIsExpanded] = useState(false);
 
-  const handleToggleExpansion = (e: {
-    target: { closest: (arg0: string) => any };
-  }) => {
+  // Properly typed onClick
+  const handleToggleExpansion = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!expandable) return;
-    // Don't toggle if clicking on interactive elements
-    if (e.target.closest('a, button, input, select, textarea')) return;
-    setIsExpanded(!isExpanded);
+
+    const target = e.target as HTMLElement;
+    if (target.closest('a, button, input, select, textarea')) return;
+
+    setIsExpanded((prev) => !prev);
   };
 
   const blurClasses = {
@@ -73,129 +75,73 @@ export const LiquidGlassCard = ({
       '0 4px 4px rgba(0, 0, 0, 0.15), 0 0 12px rgba(0, 0, 0, 0.08), 0 0 60px rgba(255, 255, 255, 0.3)',
   };
 
-  const containerVariants = expandable
+  // Corrected variants typing
+  const containerVariants: Variants | undefined = expandable
     ? {
         collapsed: {
           width: width || 'auto',
           height: height || 'auto',
-          transition: {
-            duration: 0.4,
-            ease: [0.5, 1.5, 0.5, 1],
-          },
+          transition: { duration: 0.4, ease: 'easeInOut' as const },
         },
         expanded: {
           width: expandedWidth || 'auto',
           height: expandedHeight || 'auto',
-          transition: {
-            duration: 0.4,
-            ease: [0.5, 1.5, 0.5, 1],
-          },
+          transition: { duration: 0.4, ease: 'easeInOut' as const },
         },
       }
-    : {};
-
-  const MotionComponent = draggable || expandable ? motion.div : 'div';
-
-  const motionProps =
-    draggable || expandable
-      ? {
-          variants: expandable ? containerVariants : undefined,
-          animate: expandable
-            ? isExpanded
-              ? 'expanded'
-              : 'collapsed'
-            : undefined,
-          onClick: expandable ? handleToggleExpansion : undefined,
-          drag: draggable,
-          dragConstraints: draggable
-            ? { left: 0, right: 0, top: 0, bottom: 0 }
-            : undefined,
-          dragElastic: draggable ? 0.3 : undefined,
-          dragTransition: draggable
-            ? {
-                bounceStiffness: 300,
-                bounceDamping: 10,
-                power: 0.3,
-              }
-            : undefined,
-          whileDrag: draggable ? { scale: 1.02 } : undefined,
-          whileHover: { scale: 1.01 },
-          whileTap: { scale: 0.98 },
-        }
-      : {};
+    : undefined;
 
   return (
     <>
       {/* Hidden SVG Filter */}
-      <svg className='hidden'>
+      <svg className="hidden">
         <defs>
-          <filter
-            id='glass-blur'
-            x='0'
-            y='0'
-            width='100%'
-            height='100%'
-            filterUnits='objectBoundingBox'
-          >
-            <feTurbulence
-              type='fractalNoise'
-              baseFrequency='0.003 0.007'
-              numOctaves='1'
-              result='turbulence'
-            />
-            <feDisplacementMap
-              in='SourceGraphic'
-              in2='turbulence'
-              scale='200'
-              xChannelSelector='R'
-              yChannelSelector='G'
-            />
+          <filter id="glass-blur" x="0" y="0" width="100%" height="100%" filterUnits="objectBoundingBox">
+            <feTurbulence type="fractalNoise" baseFrequency="0.003 0.007" numOctaves="1" result="turbulence" />
+            <feDisplacementMap in="SourceGraphic" in2="turbulence" scale="200" xChannelSelector="R" yChannelSelector="G" />
           </filter>
         </defs>
       </svg>
-      <MotionComponent
+
+      <motion.div
         className={cn(
-          `relative ${draggable ? 'cursor-grab active:cursor-grabbing' : ''} ${expandable ? 'cursor-pointer' : ''}`,
+          `relative ${draggable ? 'cursor-grab active:cursor-grabbing' : ''} ${
+            expandable ? 'cursor-pointer' : ''
+          }`,
           className
         )}
         style={{
           borderRadius,
-          ...(width && !expandable && { width }),
-          ...(height && !expandable && { height }),
+          ...(width && !expandable ? { width } : {}),
+          ...(height && !expandable ? { height } : {}),
         }}
-        {...motionProps}
+        variants={containerVariants}
+        animate={expandable ? (isExpanded ? 'expanded' : 'collapsed') : undefined}
+        onClick={expandable ? handleToggleExpansion : undefined}
+        drag={draggable}
+        dragConstraints={draggable ? { left: 0, right: 0, top: 0, bottom: 0 } : undefined}
+        dragElastic={draggable ? 0.3 : undefined}
+        dragTransition={draggable ? { bounceStiffness: 300, bounceDamping: 10, power: 0.3 } : undefined}
+        whileDrag={draggable ? { scale: 1.02 } : undefined}
+        whileHover={{ scale: 1.01 }}
+        whileTap={{ scale: 0.98 }}
         {...props}
       >
-        {/* Bend Layer (Backdrop blur with distortion) */}
+        {/* Bend Layer */}
         <div
           className={`absolute inset-0 ${blurClasses[blurIntensity]} z-0`}
-          style={{
-            borderRadius,
-            filter: 'url(#glass-blur)',
-          }}
+          style={{ borderRadius, filter: 'url(#glass-blur)' }}
         />
 
-        {/* Face Layer (Main shadow and glow) */}
-        <div
-          className='absolute inset-0 z-10'
-          style={{
-            borderRadius,
-            boxShadow: glowStyles[glowIntensity],
-          }}
-        />
+        {/* Face Layer */}
+        <div className="absolute inset-0 z-10" style={{ borderRadius, boxShadow: glowStyles[glowIntensity] }} />
 
-        {/* Edge Layer (Inner highlights) */}
-        <div
-          className='absolute inset-0 z-20'
-          style={{
-            borderRadius,
-            boxShadow: shadowStyles[shadowIntensity],
-          }}
-        />
+        {/* Edge Layer */}
+        <div className="absolute inset-0 z-20" style={{ borderRadius, boxShadow: shadowStyles[shadowIntensity] }} />
 
         {/* Content */}
-        <div className={cn('relative z-30')}>{children}</div>
-      </MotionComponent>
+        <div className="relative z-30">{children}</div>
+      </motion.div>
     </>
   );
 };
