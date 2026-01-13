@@ -1,11 +1,22 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import dynamic from 'next/dynamic';
 import { supabase } from '@/lib/supabase';
-import ResponderMap, { LatLng } from './ResponderMap';
 import { LiquidGlassCard } from '@/components/ui/liquid-glass-card';
 import { Button } from '@/components/ui/button';
+import type { LatLng } from './ResponderMap';
 
+/* ======================
+   SAFE DYNAMIC MAP IMPORT
+====================== */
+const ResponderMap = dynamic(() => import('./ResponderMap'), {
+  ssr: false,
+});
+
+/* ======================
+   WEBRTC CONFIG
+====================== */
 const ICE_SERVERS: RTCConfiguration = {
   iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
 };
@@ -50,7 +61,7 @@ export default function ResponderLiveViewer({
   }, []);
 
   /* ======================
-     JOIN / LEAVE COUNTER
+     JOIN / LEAVE RESPONDERS
   ====================== */
   useEffect(() => {
     supabase.from('live_responders').insert({
@@ -59,7 +70,7 @@ export default function ResponderLiveViewer({
     });
 
     const channel = supabase
-      .channel(`live-${alertId}`)
+      .channel(`live-responders-${alertId}`)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'live_responders' },
@@ -94,23 +105,26 @@ export default function ResponderLiveViewer({
   }, [alertId, responderId]);
 
   /* ======================
-     WEBRTC STREAM
+     WEBRTC STREAM HANDLING
   ====================== */
   useEffect(() => {
     const pc = new RTCPeerConnection(ICE_SERVERS);
     pcRef.current = pc;
 
     pc.ontrack = (e) => {
-      if (videoRef.current) videoRef.current.srcObject = e.streams[0];
+      if (videoRef.current) {
+        videoRef.current.srcObject = e.streams[0];
+      }
     };
 
     pc.onicecandidate = (e) => {
-      if (e.candidate)
+      if (e.candidate) {
         supabase.from('webrtc_signals').insert({
           alert_id: alertId,
           type: 'ice',
           payload: e.candidate,
         });
+      }
     };
 
     const channel = supabase
@@ -145,38 +159,49 @@ export default function ResponderLiveViewer({
   }, [alertId]);
 
   /* ======================
-     UI
+     UI RENDER
   ====================== */
   return (
-    <div className="fixed inset-0 bg-black text-white z-50">
-      {/* Video behind everything */}
+    <div className="fixed inset-0 bg-black text-white">
+      {/* ======================
+          VIDEO BACKGROUND
+      ====================== */}
       <video
         ref={videoRef}
         autoPlay
         playsInline
-        className="w-full h-full object-cover pointer-events-none"
+        muted
+        className="absolute inset-0 w-full h-full object-cover z-0"
       />
 
-      {/* UI above video */}
-      <div className="absolute top-4 left-4 right-4 z-[1000] flex justify-between items-center pointer-events-auto">
-        <LiquidGlassCard className="px-3 py-1 bg-red-600 rounded-full">
-          🔴 LIVE · {responderCount} responders
-        </LiquidGlassCard>
+      {/* ======================
+          UI OVERLAY
+      ====================== */}
+      <div className="absolute inset-0 z-10 pointer-events-none">
+        <div className="absolute top-4 left-4 right-4 flex justify-between items-center pointer-events-auto">
+          <LiquidGlassCard className="px-3 py-1 bg-red-600 rounded-full">
+            🔴 LIVE · {responderCount} responders
+          </LiquidGlassCard>
 
-        <Button onClick={() => setShowMap(true)}>🗺 Map</Button>
+          <Button onClick={() => setShowMap(true)}>🗺 Map</Button>
+        </div>
       </div>
 
-      {/* MAP OVERLAY */}
+      {/* ======================
+          MAP OVERLAY
+      ====================== */}
       {showMap && responderLocation && (
-        <div className="fixed inset-0 z-[2000] bg-black/90">
-          <ResponderMap
-            responder={responderLocation}
-            victim={{ lat: alertLat, lng: alertLng }}
-            otherResponders={otherResponders}
-            mode="live"
-            onClose={() => setShowMap(false)}
-            maxHeight="100%"
-          />
+        <div className="fixed inset-0 z-[9999] bg-black">
+          <div className="absolute inset-0">
+            <ResponderMap
+              responder={responderLocation}
+              victim={{ lat: alertLat, lng: alertLng }}
+              otherResponders={otherResponders}
+              mode="live"
+              onClose={() => setShowMap(false)}
+              maxHeight="100%"
+            />
+          </div>
         </div>
       )}
     </div>
