@@ -57,7 +57,8 @@ export default function HomePage() {
 
         setIsAuthenticated(true);
         setAuthChecked(true);
-      } catch {
+      } catch (err) {
+        console.error('Auth check failed', err);
         setAuthChecked(true);
       }
     };
@@ -67,22 +68,30 @@ export default function HomePage() {
 
   /* ---------------- GEOLOCATION ---------------- */
   useEffect(() => {
-    if (!isAuthenticated || typeof window === 'undefined' || !navigator.geolocation) return;
+    if (!isAuthenticated) return;
+    if (typeof window === 'undefined') return;
+    if (!navigator.geolocation) return;
 
     const watchId = navigator.geolocation.watchPosition(
       (pos) => {
         setUserLocation([pos.coords.latitude, pos.coords.longitude]);
       },
-      () => {},
+      (err) => {
+        console.error('Geolocation error:', err);
+      },
       { enableHighAccuracy: true }
     );
 
-    return () => navigator.geolocation.clearWatch(watchId);
+    return () => {
+      navigator.geolocation.clearWatch(watchId);
+    };
   }, [isAuthenticated]);
 
   /* ---------------- RESPONDER COUNT ---------------- */
   useEffect(() => {
     if (!isAuthenticated) return;
+
+    let isMounted = true;
 
     const fetchResponders = async () => {
       const { data, error } = await supabase
@@ -91,7 +100,9 @@ export default function HomePage() {
         .eq('role', 'responder')
         .in('status', ['available', 'on_duty']);
 
-      if (!error) setRespondersCount(data?.length ?? 0);
+      if (!error && isMounted) {
+        setRespondersCount(data?.length ?? 0);
+      }
     };
 
     fetchResponders();
@@ -101,11 +112,16 @@ export default function HomePage() {
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'profiles' },
-        fetchResponders
+        () => {
+          fetchResponders();
+        }
       )
       .subscribe();
 
-    return () => supabase.removeChannel(channel);
+    return () => {
+      isMounted = false;
+      supabase.removeChannel(channel);
+    };
   }, [isAuthenticated]);
 
   /* ---------------- GO LIVE ---------------- */
@@ -120,7 +136,7 @@ export default function HomePage() {
     try {
       const { data } = await supabase.auth.getUser();
       const uid = data.user?.id;
-      if (!uid) throw new Error();
+      if (!uid) throw new Error('User not found');
 
       const { data: alertData, error } = await supabase
         .from('emergency_alerts')
@@ -140,8 +156,10 @@ export default function HomePage() {
       setEmergencyActive(true);
       setAlertId(alertData.id);
       toast.success('You are now live.');
+
       return alertData.id;
-    } catch {
+    } catch (err) {
+      console.error(err);
       toast.error('Failed to go live');
       return null;
     } finally {
@@ -162,7 +180,7 @@ export default function HomePage() {
     try {
       const { data } = await supabase.auth.getUser();
       const uid = data.user?.id;
-      if (!uid) throw new Error();
+      if (!uid) throw new Error('User not found');
 
       await supabase.from('emergency_alerts').insert({
         user_id: uid,
@@ -175,7 +193,8 @@ export default function HomePage() {
 
       setEmergencyActive(true);
       toast.success('SOS alert sent.');
-    } catch {
+    } catch (err) {
+      console.error(err);
       toast.error('Failed to send SOS');
     } finally {
       setSOSLoading(false);
@@ -227,7 +246,7 @@ export default function HomePage() {
         </div>
       </div>
 
-      {/* FIXED MAP */}
+      {/* FIXED MAP (NON-SCROLLABLE) */}
       <div className="fixed bottom-0 left-0 right-0 z-30 bg-zinc-900 border-t border-white/10">
         <div className="max-w-4xl mx-auto p-4">
           <div className="flex items-center gap-2 mb-2">
