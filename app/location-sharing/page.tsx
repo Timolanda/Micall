@@ -21,7 +21,7 @@ export default function HybridLocationSharing() {
   };
 
   return (
-    <div className="min-h-screen bg-black text-white p-4">
+    <div className="min-h-screen bg-black text-white px-4 py-6">
 
       {/* Run tracker ONLY when sharing */}
       {sharingActive && (
@@ -34,61 +34,87 @@ export default function HybridLocationSharing() {
 
       <div className="max-w-5xl mx-auto space-y-6">
 
-        {/* Header */}
-        <div className="text-center">
-          <h1 className="text-3xl font-bold">Live Location Sharing</h1>
-          <p className="text-zinc-400">
-            Share your real-time location with trusted contacts
+        {/* ================= STATUS CARD ================= */}
+        <div
+          className={`rounded-2xl p-6 border transition ${
+            sosActive
+              ? 'bg-red-900/40 border-red-600'
+              : sharingActive
+              ? 'bg-green-900/30 border-green-600'
+              : 'bg-zinc-900 border-zinc-700'
+          }`}
+        >
+          <h1 className="text-2xl font-bold">
+            {sosActive
+              ? '🚨 SOS MODE ACTIVE'
+              : sharingActive
+              ? '📍 Live Location Sharing'
+              : 'Location Sharing Idle'}
+          </h1>
+
+          <p className="text-sm mt-1 text-zinc-300">
+            {sosActive
+              ? 'Your location is being broadcast urgently to trusted contacts.'
+              : sharingActive
+              ? 'Your trusted contacts can see your live location.'
+              : 'Start sharing your location when you feel unsafe.'}
           </p>
         </div>
 
-        {/* Status */}
-        <div className="flex justify-between items-center bg-zinc-900 p-4 rounded-xl">
-          <span
-            className={`px-4 py-2 rounded-full font-semibold ${
-              sosActive
-                ? 'bg-red-600 text-white'
-                : sharingActive
-                ? 'bg-green-600 text-white'
-                : 'bg-zinc-700 text-zinc-300'
+        {/* ================= PRIMARY ACTION ================= */}
+        <div className="bg-zinc-900 rounded-2xl p-6 flex flex-col md:flex-row items-center justify-between gap-4">
+          <div>
+            <h2 className="font-semibold text-lg">
+              Live Location
+            </h2>
+            <p className="text-sm text-zinc-400">
+              Turn on to share your movement in real time
+            </p>
+          </div>
+
+          <button
+            onClick={toggleSharing}
+            className={`w-full md:w-auto px-8 py-3 rounded-xl font-bold transition ${
+              sharingActive
+                ? 'bg-red-700 hover:bg-red-600'
+                : 'bg-green-600 hover:bg-green-500'
             }`}
           >
-            {sosActive
-              ? 'SOS ACTIVE'
-              : sharingActive
-              ? 'Sharing Active'
-              : 'Idle'}
-          </span>
+            {sharingActive ? 'Stop Sharing' : 'Start Sharing'}
+          </button>
+        </div>
 
-          <div className="flex gap-3">
-            <button
-              onClick={toggleSharing}
-              className={`px-6 py-2 rounded-lg font-semibold ${
-                sharingActive
-                  ? 'bg-red-700 hover:bg-red-600'
-                  : 'bg-red-600 hover:bg-red-500'
-              }`}
-            >
-              {sharingActive ? 'Stop Sharing' : 'Start Sharing'}
-            </button>
+        {/* ================= SOS ZONE ================= */}
+        <div className="bg-red-950/60 border border-red-700 rounded-2xl p-6">
+          <h2 className="text-lg font-bold text-red-400 mb-2">
+            Emergency SOS
+          </h2>
 
-            <button
-              onClick={triggerSOS}
-              className="px-6 py-2 bg-red-800 hover:bg-red-700 rounded-lg font-bold"
-            >
-              Trigger SOS
-            </button>
+          <p className="text-sm text-zinc-300 mb-4">
+            Use only if you are in immediate danger. This will force location sharing.
+          </p>
+
+          <button
+            onClick={triggerSOS}
+            className="w-full py-4 bg-red-700 hover:bg-red-600 rounded-xl font-extrabold text-lg tracking-wide"
+          >
+            🚨 TRIGGER SOS
+          </button>
+        </div>
+
+        {/* ================= LIVE MAP ================= */}
+        <div className="bg-zinc-900 rounded-2xl p-4">
+          <h3 className="font-semibold mb-2">Live Map</h3>
+
+          <div className="h-[320px] rounded-xl overflow-hidden">
+            <ContactLocationMap autoRefresh refreshInterval={10000} />
           </div>
         </div>
 
-        {/* Settings */}
-        <div className="bg-zinc-900 p-6 rounded-xl">
+        {/* ================= SETTINGS ================= */}
+        <div className="bg-zinc-900 rounded-2xl p-6">
+          <h3 className="font-semibold mb-3">Sharing Settings</h3>
           <LocationSharingSettings />
-        </div>
-
-        {/* Map */}
-        <div className="bg-zinc-900 p-4 rounded-xl">
-          <ContactLocationMap autoRefresh refreshInterval={10000} />
         </div>
 
       </div>
