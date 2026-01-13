@@ -17,8 +17,10 @@ import { useAuth } from '../hooks/useAuth';
 import { Users, AlertTriangle, MapPin } from 'lucide-react';
 import { toast } from 'sonner';
 
-/* ---------------- DYNAMIC IMPORTS ---------------- */
-const ResponderMap = dynamic(() => import('../components/ResponderMap'), { ssr: false });
+/* ---------------- DYNAMIC IMPORT ---------------- */
+const ResponderMap = dynamic(() => import('../components/ResponderMap'), {
+  ssr: false,
+});
 
 export default function HomePage() {
   const router = useRouter();
@@ -38,7 +40,7 @@ export default function HomePage() {
   const [showSOSModal, setShowSOSModal] = useState(false);
 
   const userId = user?.id ?? null;
-  useContacts(userId); // retained for side-effects / future UI
+  useContacts(userId);
   useHistory(userId);
 
   /* ---------------- AUTH GUARD ---------------- */
@@ -55,8 +57,7 @@ export default function HomePage() {
 
         setIsAuthenticated(true);
         setAuthChecked(true);
-      } catch (err) {
-        console.error('Auth check failed', err);
+      } catch {
         setAuthChecked(true);
       }
     };
@@ -64,7 +65,7 @@ export default function HomePage() {
     checkAuth();
   }, [router]);
 
-  /* ---------------- GEOLOCATION (CLIENT ONLY) ---------------- */
+  /* ---------------- GEOLOCATION ---------------- */
   useEffect(() => {
     if (!isAuthenticated || typeof window === 'undefined' || !navigator.geolocation) return;
 
@@ -72,13 +73,11 @@ export default function HomePage() {
       (pos) => {
         setUserLocation([pos.coords.latitude, pos.coords.longitude]);
       },
-      (err) => console.error('Geolocation error:', err),
+      () => {},
       { enableHighAccuracy: true }
     );
 
-    return () => {
-      if (navigator.geolocation) navigator.geolocation.clearWatch(watchId);
-    };
+    return () => navigator.geolocation.clearWatch(watchId);
   }, [isAuthenticated]);
 
   /* ---------------- RESPONDER COUNT ---------------- */
@@ -106,9 +105,7 @@ export default function HomePage() {
       )
       .subscribe();
 
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    return () => supabase.removeChannel(channel);
   }, [isAuthenticated]);
 
   /* ---------------- GO LIVE ---------------- */
@@ -123,8 +120,7 @@ export default function HomePage() {
     try {
       const { data } = await supabase.auth.getUser();
       const uid = data.user?.id;
-
-      if (!uid) throw new Error('User not found');
+      if (!uid) throw new Error();
 
       const { data: alertData, error } = await supabase
         .from('emergency_alerts')
@@ -143,11 +139,9 @@ export default function HomePage() {
 
       setEmergencyActive(true);
       setAlertId(alertData.id);
-
       toast.success('You are now live.');
       return alertData.id;
-    } catch (err) {
-      console.error(err);
+    } catch {
       toast.error('Failed to go live');
       return null;
     } finally {
@@ -168,8 +162,7 @@ export default function HomePage() {
     try {
       const { data } = await supabase.auth.getUser();
       const uid = data.user?.id;
-
-      if (!uid) throw new Error('User not found');
+      if (!uid) throw new Error();
 
       await supabase.from('emergency_alerts').insert({
         user_id: uid,
@@ -182,8 +175,7 @@ export default function HomePage() {
 
       setEmergencyActive(true);
       toast.success('SOS alert sent.');
-    } catch (err) {
-      console.error(err);
+    } catch {
       toast.error('Failed to send SOS');
     } finally {
       setSOSLoading(false);
@@ -191,25 +183,17 @@ export default function HomePage() {
   };
 
   /* ---------------- LOADING STATES ---------------- */
-  if (!authChecked) {
+  if (!authChecked || !isAuthenticated) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-black text-white">
-        <LoadingIndicator label="Checking authentication..." />
-      </div>
-    );
-  }
-
-  if (!isAuthenticated) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-black text-white">
-        <LoadingIndicator label="Redirecting..." />
+        <LoadingIndicator label="Loading..." />
       </div>
     );
   }
 
   /* ---------------- UI ---------------- */
   return (
-    <div className="min-h-screen bg-black text-white">
+    <div className="min-h-screen bg-black text-white pb-[18rem]">
       {(loading || sosLoading) && (
         <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center">
           <LoadingIndicator label={loading ? 'Going live...' : 'Sending SOS...'} />
@@ -225,31 +209,34 @@ export default function HomePage() {
 
       <div className="max-w-4xl mx-auto p-6 pt-20">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
-          <div className="bg-zinc-900 p-6 rounded-xl text-center">
+          <div className="bg-zinc-900 p-6 rounded-xl flex flex-col items-center justify-center">
             <GoLiveButton onStart={handleGoLive} alertId={alertId} />
             <h3 className="mt-4 font-semibold">Go Live</h3>
           </div>
 
-          <div className="bg-zinc-900 p-6 rounded-xl text-center">
+          <div className="bg-zinc-900 p-6 rounded-xl flex flex-col items-center justify-center">
             <SOSButton onSOS={() => setShowSOSModal(true)} />
             <h3 className="mt-4 font-semibold">SOS</h3>
           </div>
 
-          <div className="bg-zinc-900 p-6 rounded-xl text-center">
-            <Users className="mx-auto mb-2" />
+          <div className="bg-zinc-900 p-6 rounded-xl flex flex-col items-center justify-center">
+            <Users className="mb-2" />
             <div className="text-2xl font-bold">{respondersCount}</div>
             <p className="text-sm text-zinc-400">Responders Available</p>
           </div>
         </div>
+      </div>
 
-        <div className="bg-zinc-900 rounded-xl p-4">
+      {/* FIXED MAP */}
+      <div className="fixed bottom-0 left-0 right-0 z-30 bg-zinc-900 border-t border-white/10">
+        <div className="max-w-4xl mx-auto p-4">
           <div className="flex items-center gap-2 mb-2">
             <MapPin />
             <h2 className="font-semibold">Live Response Map</h2>
           </div>
 
           <div className="h-64 rounded-lg overflow-hidden">
-            {typeof window !== 'undefined' && userLocation && (
+            {userLocation && (
               <ResponderMap
                 responder={{ lat: userLocation[0], lng: userLocation[1] }}
                 victim={{ lat: userLocation[0], lng: userLocation[1] }}
