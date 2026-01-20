@@ -80,27 +80,42 @@ export default function HomePage() {
   }, [isAuthenticated]);
 
   /* ---------------- RESPONDERS ---------------- */
-  useEffect(() => {
-    if (!isAuthenticated) return;
+useEffect(() => {
+  if (!isAuthenticated) return;
 
-    const fetch = async () => {
-      const { data } = await supabase
-        .from('profiles')
-        .select('id')
-        .eq('role', 'responder')
-        .in('status', ['available', 'on_duty']);
+  let isMounted = true;
 
+  const fetchResponders = async () => {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('role', 'responder')
+      .in('status', ['available', 'on_duty']);
+
+    if (!error && isMounted) {
       setRespondersCount(data?.length ?? 0);
-    };
+    }
+  };
 
-    fetch();
-    const ch = supabase
-      .channel('responder-updates')
-      .on('postgres_changes', { event: '*', table: 'profiles' }, fetch)
-      .subscribe();
+  fetchResponders();
 
-    return () => supabase.removeChannel(ch);
-  }, [isAuthenticated]);
+  const channel = supabase
+    .channel('responders-status')
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'profiles' },
+      () => {
+        fetchResponders();
+      }
+    )
+    .subscribe();
+
+  // ✅ CLEANUP MUST BE SYNC
+  return () => {
+    isMounted = false;
+    supabase.removeChannel(channel);
+  };
+}, [isAuthenticated]);
 
   /* ---------------- CAMERA ---------------- */
   const startCamera = async () => {
@@ -122,39 +137,52 @@ export default function HomePage() {
   };
 
   /* ---------------- GO LIVE ---------------- */
-  const handleGoLive = async () => {
-    if (!userLocation) return toast.warning('Enable location');
+  const handleGoLive = async (): Promise<string | null> => {
+  if (!userLocation) {
+    toast.warning('Enable location services first.');
+    return null;
+  }
 
-    setLoading(true);
-    try {
-      const uid = user?.id;
-      if (!uid) throw new Error();
+  setLoading(true);
 
-      const { data, error } = await supabase
-        .from('emergency_alerts')
-        .insert({
-          user_id: uid,
-          type: 'video',
-          lat: userLocation[0],
-          lng: userLocation[1],
-          status: 'active',
-          message: 'Live started',
-        })
-        .select()
-        .single();
+  try {
+    const { data: authData } = await supabase.auth.getUser();
+    const uid = authData.user?.id;
 
-      if (error) throw error;
-
-      setAlertId(data.id);
-      setEmergencyActive(true);
-      setMapState('collapsed');
-      await startCamera();
-    } catch {
-      toast.error('Failed to go live');
-    } finally {
-      setLoading(false);
+    if (!uid) {
+      throw new Error('User not authenticated');
     }
-  };
+
+    const { data: alertData, error } = await supabase
+      .from('emergency_alerts')
+      .insert({
+        user_id: uid,
+        type: 'video',
+        lat: userLocation[0],
+        lng: userLocation[1],
+        status: 'active',
+        message: 'Go Live activated',
+      })
+      .select('id')
+      .single();
+
+    if (error || !alertData?.id) {
+      throw error ?? new Error('Failed to create alert');
+    }
+
+    setEmergencyActive(true);
+    setAlertId(String(alertData.id)); // ✅ force string
+    toast.success('You are now live.');
+
+    return String(alertData.id); // ✅ ALWAYS string
+  } catch (err) {
+    console.error(err);
+    toast.error('Failed to go live');
+    return null; // ✅ NEVER undefined
+  } finally {
+    setLoading(false);
+  }
+};
 
   /* ---------------- END LIVE ---------------- */
   const handleEndLive = async () => {
