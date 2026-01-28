@@ -1,251 +1,461 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { supabase } from '../../utils/supabaseClient';
-import { 
-  Bell, 
-  MapPin, 
-  Moon, 
-  LogOut, 
-  Shield, 
-  HelpCircle, 
-  Settings as SettingsIcon,
-  ToggleLeft,
-  ToggleRight
-} from 'lucide-react';
-import { useAuth } from '../../hooks/useAuth';
-import { useProfile } from '../../hooks/useProfile';
+import { useAuth } from '@/hooks/useAuth';
+import { supabase } from '@/utils/supabaseClient';
+import { Bell, Lock, MapPin, LogOut, AlertCircle, CheckCircle, Shield } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+
+interface NotificationSettings {
+  notify_all_emergencies: boolean;
+  notify_police: boolean;
+  notify_fire: boolean;
+  notify_medical: boolean;
+  notify_rescue: boolean;
+  location_alert_radius_km: number;
+  enable_sound: boolean;
+  enable_vibration: boolean;
+  enable_popup: boolean;
+}
 
 export default function SettingsPage() {
-  const { user } = useAuth();
-  const userId = user?.id || null;
-  const { profile, updateProfile, loading: profileLoading } = useProfile(userId);
-  const [notifications, setNotifications] = useState(profile?.notifications_enabled ?? true);
-  const [locationSharing, setLocationSharing] = useState(profile?.location_sharing ?? true);
-  const [darkMode, setDarkMode] = useState(profile?.dark_mode_enabled ?? true);
+  const router = useRouter();
+  const { user, loading: authLoading } = useAuth();
+  const [authChecked, setAuthChecked] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [notifLoading, setNotifLoading] = useState(false);
-  const [locLoading, setLocLoading] = useState(false);
-  const [darkLoading, setDarkLoading] = useState(false);
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [userRole, setUserRole] = useState<string | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [enableAdminMode, setEnableAdminMode] = useState(false);
+  const [settings, setSettings] = useState<NotificationSettings>({
+    notify_all_emergencies: true,
+    notify_police: true,
+    notify_fire: true,
+    notify_medical: true,
+    notify_rescue: true,
+    location_alert_radius_km: 5,
+    enable_sound: true,
+    enable_vibration: true,
+    enable_popup: true,
+  });
 
-  // Sync state with profile
+  // Check auth and redirect if needed
   useEffect(() => {
-    setNotifications(profile?.notifications_enabled ?? true);
-    setLocationSharing(profile?.location_sharing ?? true);
-    setDarkMode(profile?.dark_mode_enabled ?? true);
-    
-    // Apply dark mode to document
-    if (profile?.dark_mode_enabled) {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
-  }, [profile]);
+    if (authLoading) return;
 
-  const handleToggleNotifications = async () => {
-    setNotifLoading(true);
-    if (!notifications) {
-      // Request browser permission
-      const permission = await Notification.requestPermission();
-      if (permission !== 'granted') {
-        setNotifLoading(false);
-        return;
+    if (!user) {
+      router.replace('/signin');
+      return;
+    }
+
+    setAuthChecked(true);
+  }, [user, authLoading, router]);
+
+  // Load user role
+  useEffect(() => {
+    if (!user) return;
+
+    const loadUserRole = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('role')
+          .eq('id', user.id)
+          .single();
+
+        if (!error && data) {
+          setUserRole(data.role);
+          const adminRoles = ['admin', 'police', 'fire', 'hospital', 'ems'];
+          setIsAdmin(adminRoles.includes(data.role?.toLowerCase() || ''));
+        }
+      } catch (err) {
+        console.error('Error loading user role:', err);
       }
-    }
-    setNotifications(!notifications);
-    await updateProfile({ notifications_enabled: !notifications });
-    setNotifLoading(false);
-  };
+    };
 
-  const handleToggleLocationSharing = async () => {
-    setLocLoading(true);
-    setLocationSharing(!locationSharing);
-    await updateProfile({ location_sharing: !locationSharing });
-    setLocLoading(false);
-    // Optionally: trigger a callback/side effect in the app to enable/disable geolocation
-  };
+    loadUserRole();
+  }, [user]);
 
-  const handleToggleDarkMode = async () => {
-    setDarkLoading(true);
-    const newDarkMode = !darkMode;
-    setDarkMode(newDarkMode);
-    
-    // Apply dark mode to document immediately for smooth transition
-    if (newDarkMode) {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
-    
-    // Save to Supabase
-    await updateProfile({ dark_mode_enabled: newDarkMode });
-    setDarkLoading(false);
-  };
+  // Load settings
+  useEffect(() => {
+    if (!user) return;
 
-  const handleLogout = async () => {
+    const loadSettings = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('notification_settings')
+          .select('*')
+          .eq('user_id', user.id)
+          .single();
+
+        if (error && error.code !== 'PGRST116') {
+          throw error;
+        }
+
+        if (data) {
+          setSettings({
+            notify_all_emergencies: data.notify_all_emergencies ?? true,
+            notify_police: data.notify_police ?? true,
+            notify_fire: data.notify_fire ?? true,
+            notify_medical: data.notify_medical ?? true,
+            notify_rescue: data.notify_rescue ?? true,
+            location_alert_radius_km: data.location_alert_radius_km ?? 5,
+            enable_sound: data.enable_sound ?? true,
+            enable_vibration: data.enable_vibration ?? true,
+            enable_popup: data.enable_popup ?? true,
+          });
+        }
+      } catch (err) {
+        console.error('Error loading settings:', err);
+      }
+    };
+
+    loadSettings();
+  }, [user]);
+
+  // Save settings
+  const handleSaveSettings = async () => {
+    if (!user) return;
+
     setLoading(true);
     try {
-      await supabase.auth.signOut();
-      window.location.href = '/landing';
-    } catch (error) {
-      console.error('Logout error:', error);
+      const { error } = await supabase
+        .from('notification_settings')
+        .upsert({
+          user_id: user.id,
+          ...settings,
+          updated_at: new Date().toISOString(),
+        });
+
+      if (error) throw error;
+
+      setMessage({ type: 'success', text: '✅ Settings saved successfully' });
+      setTimeout(() => setMessage(null), 3000);
+    } catch (err) {
+      console.error('Error saving settings:', err);
+      setMessage({ type: 'error', text: '❌ Failed to save settings' });
     } finally {
       setLoading(false);
     }
   };
 
-  const settingsItems = [
-    {
-      icon: <Bell size={20} />,
-      title: 'Push Notifications',
-      description: 'Receive emergency alerts and updates',
-      action: (
-        <button
-          onClick={handleToggleNotifications}
-          className="flex items-center"
-          disabled={notifLoading || profileLoading}
-        >
-          {notifications ? (
-            <ToggleRight size={24} className="text-primary" />
-          ) : (
-            <ToggleLeft size={24} className="text-zinc-600" />
-          )}
-        </button>
-      )
-    },
-    {
-      icon: <MapPin size={20} />,
-      title: 'Location Sharing',
-      description: 'Share your location with emergency responders',
-      action: (
-        <button
-          onClick={handleToggleLocationSharing}
-          className="flex items-center"
-          disabled={locLoading || profileLoading}
-        >
-          {locationSharing ? (
-            <ToggleRight size={24} className="text-primary" />
-          ) : (
-            <ToggleLeft size={24} className="text-zinc-600" />
-          )}
-        </button>
-      )
-    },
-    {
-      icon: <Moon size={20} />,
-      title: 'Dark Mode',
-      description: 'Use dark theme for better visibility',
-      action: (
-        <button
-          onClick={handleToggleDarkMode}
-          className="flex items-center"
-          disabled={darkLoading || profileLoading}
-        >
-          {darkMode ? (
-            <ToggleRight size={24} className="text-primary" />
-          ) : (
-            <ToggleLeft size={24} className="text-zinc-600" />
-          )}
-        </button>
-      )
+  // Handle sign out
+  const handleSignOut = async () => {
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+      router.push('/signin');
+    } catch (err) {
+      console.error('Sign out error:', err);
+      setMessage({ type: 'error', text: '❌ Failed to sign out' });
     }
-  ];
+  };
 
-  const actionItems = [
-    {
-      icon: <Shield size={20} />,
-      title: 'Privacy Policy',
-      description: 'Read our privacy policy',
-      action: () => window.open('/privacy', '_blank')
-    },
-    {
-      icon: <HelpCircle size={20} />,
-      title: 'Help & Support',
-      description: 'Get help and contact support',
-      action: () => window.open('/help', '_blank')
-    },
-    {
-      icon: <LogOut size={20} />,
-      title: 'Sign Out',
-      description: 'Sign out of your account',
-      action: handleLogout,
-      danger: true
-    }
-  ];
+  // Handle go to admin
+  const handleAccessAdmin = () => {
+    router.push('/admin');
+  };
+
+  // Handle enable/disable admin mode
+  const handleToggleAdminMode = async () => {
+    if (!user) return;
+    setEnableAdminMode(!enableAdminMode);
+    setMessage({ 
+      type: 'success', 
+      text: enableAdminMode ? '❌ Admin mode disabled' : '✅ Admin mode enabled' 
+    });
+    setTimeout(() => setMessage(null), 3000);
+  };
+
+  if (!authChecked || authLoading) {
+    return (
+      <div className="min-h-screen bg-black text-white flex items-center justify-center p-4">
+        <div className="text-center">
+          <AlertCircle className="w-12 h-12 text-blue-500 mx-auto mb-4" />
+          <p>Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-black text-white flex items-center justify-center p-4">
+        <div className="text-center">
+          <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
+          <p>Please sign in to access settings</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-black text-white p-4">
-      <div className="max-w-4xl mx-auto">
+    <div className="min-h-screen bg-black text-white p-4 pb-20">
+      <div className="max-w-2xl mx-auto space-y-6">
         {/* Header */}
-        <div className="mb-8 text-center">
-          <h1 className="text-3xl font-bold mb-2">Settings</h1>
-          <p className="text-zinc-400">Customize your emergency response experience</p>
+        <div className="sticky top-0 bg-black/95 backdrop-blur z-10 -mx-4 px-4 py-4 mb-6">
+          <h1 className="text-3xl font-bold">Settings</h1>
+          <p className="text-gray-400 text-sm">Manage your MiCall preferences</p>
         </div>
 
-        {/* Settings Icon */}
-        <div className="flex justify-center mb-8">
-          <div className="bg-zinc-900 rounded-full p-6 shadow-lg border border-zinc-700">
-            <SettingsIcon size={32} className="text-primary" />
+        {/* Messages */}
+        {message && (
+          <div
+            className={`flex items-center gap-3 p-4 rounded-lg ${
+              message.type === 'success'
+                ? 'bg-green-900/30 border border-green-500/30 text-green-400'
+                : 'bg-red-900/30 border border-red-500/30 text-red-400'
+            }`}
+          >
+            {message.type === 'success' ? (
+              <CheckCircle className="w-5 h-5 flex-shrink-0" />
+            ) : (
+              <AlertCircle className="w-5 h-5 flex-shrink-0" />
+            )}
+            <span className="text-sm">{message.text}</span>
           </div>
-        </div>
+        )}
 
-        {/* App Settings */}
-        <div className="bg-zinc-900 rounded-xl p-6 shadow-inner mb-8">
-          <h2 className="text-xl font-semibold mb-6">App Settings</h2>
-          <div className="space-y-6">
-            {settingsItems.map((item, index) => (
-              <div key={index} className="flex items-center justify-between p-4 bg-zinc-800 rounded-lg">
-                <div className="flex items-center gap-4">
-                  <div className="text-primary">{item.icon}</div>
-                  <div>
-                    <h3 className="font-medium text-lg">{item.title}</h3>
-                    <p className="text-sm text-zinc-400">{item.description}</p>
-                  </div>
-                </div>
-                {item.action}
-              </div>
-            ))}
+        {/* Notification Settings Section */}
+        <section className="bg-gray-900/50 rounded-xl p-6 border border-gray-800">
+          <div className="flex items-center gap-3 mb-6">
+            <Bell className="w-6 h-6 text-blue-400" />
+            <h2 className="text-xl font-semibold">Notifications</h2>
           </div>
-        </div>
 
-        {/* Account Actions */}
-        <div className="bg-zinc-900 rounded-xl p-6 shadow-inner">
-          <h2 className="text-xl font-semibold mb-6">Account</h2>
           <div className="space-y-4">
-            {actionItems.map((item, index) => (
-              <button
-                key={index}
-                onClick={item.action}
-                disabled={loading && item.title === 'Sign Out'}
-                className={`w-full flex items-center justify-between p-4 bg-zinc-800 rounded-lg hover:bg-zinc-700 transition-colors ${
-                  item.danger ? 'hover:bg-red-900/20' : ''
-                } ${loading && item.title === 'Sign Out' ? 'opacity-50' : ''}`}
-              >
-                <div className="flex items-center gap-4">
-                  <div className={item.danger ? 'text-red-400' : 'text-primary'}>
-                    {item.icon}
-                  </div>
-                  <div className="text-left">
-                    <h3 className={`font-medium text-lg ${item.danger ? 'text-red-400' : ''}`}>
-                      {item.title}
-                    </h3>
-                    <p className="text-sm text-zinc-400">{item.description}</p>
-                  </div>
-                </div>
-                {loading && item.title === 'Sign Out' ? (
-                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
-                ) : (
-                  <div className="text-zinc-400">→</div>
-                )}
-              </button>
-            ))}
-          </div>
-        </div>
+            {/* Alert Types */}
+            <div>
+              <h3 className="text-sm font-medium text-gray-300 mb-3">Alert Types</h3>
+              <div className="space-y-2">
+                <label className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-800/50 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={settings.notify_all_emergencies}
+                    onChange={(e) =>
+                      setSettings({ ...settings, notify_all_emergencies: e.target.checked })
+                    }
+                    className="w-4 h-4 rounded"
+                  />
+                  <span className="text-sm">All Emergencies</span>
+                </label>
 
-        {/* App Version */}
-        <div className="text-center mt-8 text-zinc-500 text-sm">
-          <p>MiCall Emergency Response</p>
-          <p>Version 1.0.0</p>
+                <label className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-800/50 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={settings.notify_police}
+                    onChange={(e) =>
+                      setSettings({ ...settings, notify_police: e.target.checked })
+                    }
+                    className="w-4 h-4 rounded"
+                  />
+                  <span className="text-sm">Police Incidents</span>
+                </label>
+
+                <label className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-800/50 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={settings.notify_fire}
+                    onChange={(e) =>
+                      setSettings({ ...settings, notify_fire: e.target.checked })
+                    }
+                    className="w-4 h-4 rounded"
+                  />
+                  <span className="text-sm">Fire Emergencies</span>
+                </label>
+
+                <label className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-800/50 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={settings.notify_medical}
+                    onChange={(e) =>
+                      setSettings({ ...settings, notify_medical: e.target.checked })
+                    }
+                    className="w-4 h-4 rounded"
+                  />
+                  <span className="text-sm">Medical Emergencies</span>
+                </label>
+
+                <label className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-800/50 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={settings.notify_rescue}
+                    onChange={(e) =>
+                      setSettings({ ...settings, notify_rescue: e.target.checked })
+                    }
+                    className="w-4 h-4 rounded"
+                  />
+                  <span className="text-sm">Rescue Operations</span>
+                </label>
+              </div>
+            </div>
+
+            {/* Notification Style */}
+            <div className="pt-4 border-t border-gray-800">
+              <h3 className="text-sm font-medium text-gray-300 mb-3">Notification Style</h3>
+              <div className="space-y-2">
+                <label className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-800/50 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={settings.enable_sound}
+                    onChange={(e) =>
+                      setSettings({ ...settings, enable_sound: e.target.checked })
+                    }
+                    className="w-4 h-4 rounded"
+                  />
+                  <span className="text-sm">🔔 Sound</span>
+                </label>
+
+                <label className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-800/50 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={settings.enable_vibration}
+                    onChange={(e) =>
+                      setSettings({ ...settings, enable_vibration: e.target.checked })
+                    }
+                    className="w-4 h-4 rounded"
+                  />
+                  <span className="text-sm">📳 Vibration</span>
+                </label>
+
+                <label className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-800/50 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={settings.enable_popup}
+                    onChange={(e) =>
+                      setSettings({ ...settings, enable_popup: e.target.checked })
+                    }
+                    className="w-4 h-4 rounded"
+                  />
+                  <span className="text-sm">💬 Pop-up</span>
+                </label>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Location Settings Section */}
+        <section className="bg-gray-900/50 rounded-xl p-6 border border-gray-800">
+          <div className="flex items-center gap-3 mb-6">
+            <MapPin className="w-6 h-6 text-blue-400" />
+            <h2 className="text-xl font-semibold">Location</h2>
+          </div>
+
+          <div className="space-y-4">
+            <label>
+              <span className="text-sm font-medium text-gray-300 block mb-2">
+                Alert Radius: {settings.location_alert_radius_km} km
+              </span>
+              <input
+                type="range"
+                min="1"
+                max="50"
+                value={settings.location_alert_radius_km}
+                onChange={(e) =>
+                  setSettings({
+                    ...settings,
+                    location_alert_radius_km: parseInt(e.target.value),
+                  })
+                }
+                className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"
+              />
+              <span className="text-xs text-gray-500 mt-2 block">
+                Get notified for emergencies within {settings.location_alert_radius_km} km of your location
+              </span>
+            </label>
+          </div>
+        </section>
+
+        {/* Admin Section - Only show for admins */}
+        {isAdmin && (
+          <section className="bg-gradient-to-r from-purple-900/30 to-blue-900/30 rounded-xl p-6 border border-purple-500/30">
+            <div className="flex items-center gap-3 mb-6">
+              <Lock className="w-6 h-6 text-purple-400" />
+              <h2 className="text-xl font-semibold">Administrator Panel</h2>
+              <span className="ml-auto text-xs bg-purple-500/30 text-purple-200 px-3 py-1 rounded-full">
+                Admin
+              </span>
+            </div>
+
+            <div className="space-y-3">
+              <button
+                onClick={handleAccessAdmin}
+                className="w-full px-4 py-3 bg-purple-600/30 hover:bg-purple-600/50 border border-purple-500/50 rounded-lg text-left text-sm transition-colors flex items-center justify-between"
+              >
+                <span>📊 Admin Dashboard</span>
+                <span className="text-xs text-purple-300">→</span>
+              </button>
+              <p className="text-xs text-gray-400 px-4">
+                Access the full admin dashboard to manage alerts, responders, and system settings.
+              </p>
+            </div>
+
+            {/* Show user conversion only for owner */}
+            {user?.email === 'timolanda@gmail.com' && (
+              <div className="mt-6 pt-6 border-t border-purple-500/30">
+                <h3 className="text-sm font-semibold text-purple-300 mb-4">🔑 User Management</h3>
+                <p className="text-xs text-gray-400 mb-4">
+                  Convert users to admin roles. This action is owner-only.
+                </p>
+                <button
+                  onClick={() => router.push('/admin/convert-user')}
+                  className="w-full px-4 py-3 bg-yellow-600/30 hover:bg-yellow-600/50 border border-yellow-500/50 rounded-lg text-left text-sm transition-colors flex items-center justify-between"
+                >
+                  <span>👥 Convert User to Admin</span>
+                  <span className="text-xs text-yellow-300">→</span>
+                </button>
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* Privacy & Security Section */}
+        <section className="bg-gray-900/50 rounded-xl p-6 border border-gray-800">
+          <div className="flex items-center gap-3 mb-6">
+            <Lock className="w-6 h-6 text-blue-400" />
+            <h2 className="text-xl font-semibold">Privacy & Security</h2>
+          </div>
+
+          <div className="space-y-3">
+            <button
+              onClick={() => router.push('/privacy')}
+              className="w-full px-4 py-3 bg-gray-800/50 hover:bg-gray-800 rounded-lg text-left text-sm transition-colors"
+            >
+              Privacy Policy
+            </button>
+            <button
+              onClick={() => router.push('/help')}
+              className="w-full px-4 py-3 bg-gray-800/50 hover:bg-gray-800 rounded-lg text-left text-sm transition-colors"
+            >
+              Help & Support
+            </button>
+          </div>
+        </section>
+
+        {/* Save Settings Button */}
+        <button
+          onClick={handleSaveSettings}
+          disabled={loading}
+          className="w-full px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white font-medium rounded-lg transition-colors"
+        >
+          {loading ? 'Saving...' : 'Save Settings'}
+        </button>
+
+        {/* Sign Out Section */}
+        <section className="border-t border-gray-800 pt-6">
+          <button
+            onClick={handleSignOut}
+            className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-red-900/20 hover:bg-red-900/30 border border-red-500/30 text-red-400 font-medium rounded-lg transition-colors"
+          >
+            <LogOut className="w-5 h-5" />
+            Sign Out
+          </button>
+        </section>
+
+        {/* Version Info */}
+        <div className="text-center text-xs text-gray-600 pt-6">
+          <p>MiCall v1.0.0</p>
+          <p>© 2025 MiCall Emergency Response</p>
         </div>
       </div>
     </div>

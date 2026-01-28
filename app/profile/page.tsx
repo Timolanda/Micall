@@ -5,6 +5,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/utils/supabaseClient';
 import Modal from '@/components/Modal';
+import InviteButton from '@/components/InviteButton';
 import { Pencil, Trash2, PlusCircle, Save, Camera } from 'lucide-react';
 
 interface Contact {
@@ -214,11 +215,14 @@ export default function ProfilePage() {
       <div className="max-w-4xl mx-auto p-4 pt-8 pb-24">
 
         {/* Header */}
-        <header className="text-center mb-6">
-          <h1 className="text-3xl font-bold">Profile</h1>
-          <p className="text-zinc-400">
-            Set up emergency contacts & medical info
-          </p>
+        <header className="flex justify-between items-start mb-6">
+          <div className="text-left">
+            <h1 className="text-3xl font-bold">Profile</h1>
+            <p className="text-zinc-400">
+              Set up emergency contacts & medical info
+            </p>
+          </div>
+          <InviteButton variant="compact" sourceFlow="profile" />
         </header>
 
         {/* Profile Photo */}
