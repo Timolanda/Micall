@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MiCall - Limited Mode</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      color: #fff;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .container {
+      max-width: 500px;
+      width: 100%;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 16px;
+      padding: 40px;
+      text-align: center;
+      backdrop-filter: blur(10px);
+    }
+
+    .icon {
+      font-size: 64px;
+      margin-bottom: 24px;
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% {
+        opacity: 1;
+      }
+      50% {
+        opacity: 0.5;
+      }
+    }
+
+    h1 {
+      font-size: 28px;
+      margin-bottom: 12px;
+      font-weight: 700;
+    }
+
+    .subtitle {
+      font-size: 16px;
+      color: #a0a0a0;
+      margin-bottom: 24px;
+      line-height: 1.6;
+    }
+
+    .features {
+      background: rgba(255, 255, 255, 0.03);
+      border-radius: 12px;
+      padding: 20px;
+      margin: 24px 0;
+      text-align: left;
+    }
+
+    .feature {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .feature:last-child {
+      border-bottom: none;
+    }
+
+    .feature-icon {
+      font-size: 20px;
+      flex-shrink: 0;
+    }
+
+    .feature-text {
+      font-size: 14px;
+      color: #d0d0d0;
+    }
+
+    .status {
+      margin: 24px 0;
+      padding: 12px;
+      background: rgba(255, 193, 7, 0.1);
+      border-left: 3px solid #ffc107;
+      border-radius: 4px;
+      text-align: left;
+      font-size: 14px;
+      color: #ffeb3b;
+    }
+
+    .buttons {
+      display: flex;
+      gap: 12px;
+      margin-top: 24px;
+    }
+
+    button {
+      flex: 1;
+      padding: 12px 24px;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s ease;
+    }
+
+    .btn-primary {
+      background: #0066cc;
+      color: white;
+    }
+
+    .btn-primary:hover {
+      background: #0052a3;
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(0, 102, 204, 0.3);
+    }
+
+    .btn-secondary {
+      background: transparent;
+      color: #0066cc;
+      border: 2px solid #0066cc;
+    }
+
+    .btn-secondary:hover {
+      background: rgba(0, 102, 204, 0.1);
+    }
+
+    .footer {
+      margin-top: 24px;
+      font-size: 12px;
+      color: #707070;
+    }
+
+    .spinner {
+      display: inline-block;
+      width: 20px;
+      height: 20px;
+      border: 3px solid rgba(255, 255, 255, 0.3);
+      border-top-color: #0066cc;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-right: 8px;
+      vertical-align: middle;
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="icon">📡</div>
+    
+    <h1>Limited Offline Mode</h1>
+    <p class="subtitle">
+      It looks like you've lost your internet connection. MiCall will continue to work in limited mode.
+    </p>
+
+    <div class="status">
+      <span class="spinner"></span>
+      Checking connection...
+    </div>
+
+    <div class="features">
+      <div class="feature">
+        <span class="feature-icon">✅</span>
+        <span class="feature-text">View previously loaded pages</span>
+      </div>
+      <div class="feature">
+        <span class="feature-icon">✅</span>
+        <span class="feature-text">Check your emergency contacts</span>
+      </div>
+      <div class="feature">
+        <span class="feature-icon">✅</span>
+        <span class="feature-text">Access stored settings</span>
+      </div>
+      <div class="feature">
+        <span class="feature-icon">⏳</span>
+        <span class="feature-text">Changes will sync when online</span>
+      </div>
+    </div>
+
+    <div class="buttons">
+      <button class="btn-primary" onclick="tryAgain()">Try Again</button>
+      <button class="btn-secondary" onclick="goHome()">Go Home</button>
+    </div>
+
+    <div class="footer">
+      <p>Once your connection is restored, MiCall will sync automatically.</p>
+    </div>
+  </div>
+
+  <script>
+    // Check connection status
+    function checkConnection() {
+      fetch('/api/health', { method: 'HEAD' })
+        .then(() => {
+          // Connection restored
+          document.querySelector('.status').innerHTML = '✅ Connection restored! Redirecting...';
+          document.querySelector('.status').style.background = 'rgba(76, 175, 80, 0.1)';
+          document.querySelector('.status').style.borderLeftColor = '#4caf50';
+          document.querySelector('.status').style.color = '#81c784';
+          
+          setTimeout(() => {
+            window.location.href = '/';
+          }, 1500);
+        })
+        .catch(() => {
+          // Still offline
+          setTimeout(checkConnection, 3000);
+        });
+    }
+
+    function tryAgain() {
+      checkConnection();
+    }
+
+    function goHome() {
+      window.location.href = '/';
+    }
+
+    // Start checking connection
+    checkConnection();
+  </script>
+</body>
+</html>
