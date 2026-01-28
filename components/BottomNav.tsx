@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { FaHome, FaUser, FaCog, FaShieldAlt } from 'react-icons/fa';
+import { AlertSoundToggle } from './AlertSoundToggle';
 
 export const BOTTOM_NAV_HEIGHT = 64; // px (h-16)
 
@@ -53,6 +54,14 @@ export default function BottomNav() {
           </Link>
         );
       })}
+      
+      {/* Alert Sound Toggle */}
+      <div className="flex flex-col items-center justify-center px-2">
+        <AlertSoundToggle className="text-white/70 hover:text-white" />
+        <span className="text-[11px] leading-none text-white/70 mt-0.5">
+          Sound
+        </span>
+      </div>
     </nav>
   );
 }
