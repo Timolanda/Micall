@@ -1,10 +1,13 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/utils/supabaseClient';
 import { Bell, Lock, MapPin, LogOut, AlertCircle, CheckCircle, Shield } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+
+// ⚡ PERFORMANCE: Debounce timer for form changes
+let saveDebounceTimer: NodeJS.Timeout | null = null;
 
 interface NotificationSettings {
   notify_all_emergencies: boolean;
@@ -51,69 +54,87 @@ export default function SettingsPage() {
     setAuthChecked(true);
   }, [user, authLoading, router]);
 
-  // Load user role
+  // ⚡ PERFORMANCE: Load user role and notification settings in parallel
   useEffect(() => {
     if (!user) return;
 
-    const loadUserRole = async () => {
+    const loadUserDataInParallel = async () => {
       try {
-        const { data, error } = await supabase
-          .from('profiles')
-          .select('role')
-          .eq('id', user.id)
-          .single();
+        // Load both in parallel instead of sequentially
+        const [roleResult, settingsResult] = await Promise.all([
+          supabase
+            .from('profiles')
+            .select('role')
+            .eq('id', user.id)
+            .single(),
+          supabase
+            .from('notification_settings')
+            .select('*')
+            .eq('user_id', user.id)
+            .single(),
+        ]);
 
-        if (!error && data) {
-          setUserRole(data.role);
+        // Handle role
+        if (!roleResult.error && roleResult.data) {
+          setUserRole(roleResult.data.role);
           const adminRoles = ['admin', 'police', 'fire', 'hospital', 'ems'];
-          setIsAdmin(adminRoles.includes(data.role?.toLowerCase() || ''));
-        }
-      } catch (err) {
-        console.error('Error loading user role:', err);
-      }
-    };
-
-    loadUserRole();
-  }, [user]);
-
-  // Load settings
-  useEffect(() => {
-    if (!user) return;
-
-    const loadSettings = async () => {
-      try {
-        const { data, error } = await supabase
-          .from('notification_settings')
-          .select('*')
-          .eq('user_id', user.id)
-          .single();
-
-        if (error && error.code !== 'PGRST116') {
-          throw error;
+          setIsAdmin(adminRoles.includes(roleResult.data.role?.toLowerCase() || ''));
         }
 
-        if (data) {
+        // Handle settings
+        if (settingsResult.data) {
           setSettings({
-            notify_all_emergencies: data.notify_all_emergencies ?? true,
-            notify_police: data.notify_police ?? true,
-            notify_fire: data.notify_fire ?? true,
-            notify_medical: data.notify_medical ?? true,
-            notify_rescue: data.notify_rescue ?? true,
-            location_alert_radius_km: data.location_alert_radius_km ?? 5,
-            enable_sound: data.enable_sound ?? true,
-            enable_vibration: data.enable_vibration ?? true,
-            enable_popup: data.enable_popup ?? true,
+            notify_all_emergencies: settingsResult.data.notify_all_emergencies ?? true,
+            notify_police: settingsResult.data.notify_police ?? true,
+            notify_fire: settingsResult.data.notify_fire ?? true,
+            notify_medical: settingsResult.data.notify_medical ?? true,
+            notify_rescue: settingsResult.data.notify_rescue ?? true,
+            location_alert_radius_km: settingsResult.data.location_alert_radius_km ?? 5,
+            enable_sound: settingsResult.data.enable_sound ?? true,
+            enable_vibration: settingsResult.data.enable_vibration ?? true,
+            enable_popup: settingsResult.data.enable_popup ?? true,
           });
         }
       } catch (err) {
-        console.error('Error loading settings:', err);
+        console.error('Error loading user data:', err);
       }
     };
 
-    loadSettings();
+    loadUserDataInParallel();
   }, [user]);
 
-  // Save settings
+  // ⚡ PERFORMANCE: Debounced save settings (avoid excessive API calls on rapid changes)
+  const handleSettingChange = async (newSettings: NotificationSettings) => {
+    setSettings(newSettings);
+    
+    // Clear previous timer
+    if (saveDebounceTimer) {
+      clearTimeout(saveDebounceTimer);
+    }
+
+    // Debounce save by 1 second
+    saveDebounceTimer = setTimeout(async () => {
+      if (!user) return;
+
+      try {
+        const { error } = await supabase
+          .from('notification_settings')
+          .upsert({
+            user_id: user.id,
+            ...newSettings,
+            updated_at: new Date().toISOString(),
+          });
+
+        if (error) throw error;
+        console.log('✅ Settings auto-saved');
+      } catch (err) {
+        console.error('Error auto-saving settings:', err);
+        setMessage({ type: 'error', text: '❌ Failed to save settings' });
+      }
+    }, 1000);
+  };
+
+  // Save settings (manual save button - no debounce)
   const handleSaveSettings = async () => {
     if (!user) return;
 

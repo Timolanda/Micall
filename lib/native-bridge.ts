@@ -31,6 +31,15 @@ export class NativeBridge {
    * Detect platform and capabilities
    */
   private detectCapabilities(): NativeBridgeCapabilities {
+    // Server-side rendering safety check
+    if (typeof navigator === 'undefined') {
+      return {
+        hasAccessibility: false,
+        hasBackground: false,
+        platform: 'web',
+      };
+    }
+
     const userAgent = navigator.userAgent.toLowerCase();
     const isAndroid = /android/.test(userAgent);
     const isIos = /iphone|ipad|ipod/.test(userAgent);
@@ -48,6 +57,8 @@ export class NativeBridge {
    * Android-specific: Check if Accessibility Service is enabled
    */
   private checkAndroidAccessibility(): boolean {
+    // Server-side rendering safety check
+    if (typeof window === 'undefined') return false;
     // This would be populated by Android Java bridge
     return !!(window as any).__micall_accessibility_enabled;
   }

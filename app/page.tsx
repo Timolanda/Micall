@@ -14,6 +14,7 @@ import { useContacts } from '../hooks/useContacts';
 import { useHistory } from '../hooks/useHistory';
 import { useAuth } from '../hooks/useAuth';
 import { useAlertSound } from '../hooks/useAlertSound';
+import { useNativeBridge, type UseNativeBridgeProps } from '../hooks/useNativeBridge';
 
 import {
   Users,
@@ -26,9 +27,15 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 
+// ⚡ PERFORMANCE: Lazy load expensive map component
 const ResponderMap = dynamic(() => import('../components/ResponderMap'), {
   ssr: false,
+  loading: () => <div className="h-96 bg-gray-200 animate-pulse rounded-lg" />,
 });
+
+// ⚡ PERFORMANCE: Pagination limits
+const ALERTS_PAGE_SIZE = 10;
+const RESPONDERS_PAGE_SIZE = 20;
 
 type MapState = 'collapsed' | 'expanded';
 
@@ -53,10 +60,37 @@ export default function HomePage() {
 
   const [showSOSModal, setShowSOSModal] = useState(false);
   const [mapState, setMapState] = useState<MapState>('collapsed');
+  const [powerButtonReady, setPowerButtonReady] = useState(false);
 
   const userId = user?.id ?? null;
   useContacts(userId);
   useHistory(userId);
+
+  // ⚡ INTEGRATE POWER BUTTON: Set up native bridge for power button emergency activation
+  const { } = useNativeBridge({
+    enabled: isAuthenticated && !emergencyActive,
+    onPowerButtonPress: async (event) => {
+      console.log('📱 Power button pressed:', event);
+      // Short press: trigger SOS (emergency mode)
+      if (!emergencyActive && !event.isLongPress) {
+        console.log('🆘 Power button short press - triggering SOS');
+        toast.info('📱 Power button pressed - Activating SOS');
+        await handleGoLive(); // Activate go live when power button pressed
+      }
+    },
+    onLongPress: async (event) => {
+      console.log('📱 Power button long pressed:', event);
+      // Long press: show confirmation modal
+      if (!emergencyActive) {
+        console.log('🆘 Power button long press - showing SOS modal');
+        setShowSOSModal(true);
+      }
+    },
+  });
+
+  useEffect(() => {
+    setPowerButtonReady(true);
+  }, [isAuthenticated]);
 
   /* ---------------- AUTH ---------------- */
   useEffect(() => {
@@ -165,23 +199,95 @@ useEffect(() => {
     };
   }, [emergencyActive, alertId]);
 
-  /* ---------------- CAMERA ---------------- */
-  const startCamera = async () => {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'user' },
-      audio: true,
-    });
+  /* ---------------- CAMERA PERMISSION CHECK & SETUP ---------------- */
+  const checkCameraPermission = async (): Promise<boolean> => {
+    try {
+      const permissions = await navigator.permissions?.query?.({ name: 'camera' });
+      if (permissions?.state === 'denied') {
+        toast.error('Camera permission denied. Please enable in settings.');
+        return false;
+      }
+      return true;
+    } catch (err) {
+      console.warn('Could not check camera permission:', err);
+      return true; // Proceed anyway on unsupported browsers
+    }
+  };
 
-    mediaStreamRef.current = stream;
-    if (videoRef.current) {
-      videoRef.current.srcObject = stream;
-      await videoRef.current.play();
+  /* ---------------- CAMERA SETUP WITH PROPER CONSTRAINTS & ERROR HANDLING ---------------- */
+  const startCamera = async () => {
+    try {
+      // Check permission first on mobile - only on browsers that support it
+      try {
+        if ('permissions' in navigator && 'query' in navigator.permissions) {
+          const hasPermission = await checkCameraPermission();
+          if (!hasPermission) {
+            throw new Error('Camera permission denied');
+          }
+        }
+      } catch (permErr) {
+        console.warn('Could not check permissions:', permErr);
+        // Continue anyway - might work
+      }
+
+      const constraints = {
+        video: {
+          facingMode: 'user',
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          frameRate: { ideal: 30 },
+        },
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      };
+
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      mediaStreamRef.current = stream;
+
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.onloadedmetadata = () => {
+          videoRef.current?.play().catch((err) => {
+            console.error('Video play failed:', err);
+            toast.error('Failed to start video playback');
+          });
+        };
+      }
+
+      console.log('✅ Camera started successfully');
+    } catch (err) {
+      console.error('❌ Camera start failed:', err);
+      const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+
+      // Specific error handling
+      if (errorMsg.includes('NotAllowedError') || errorMsg.includes('Permission denied')) {
+        toast.error('📹 Camera permission denied. Please enable in browser settings.');
+      } else if (errorMsg.includes('NotFoundError') || errorMsg.includes('no suitable cameras')) {
+        toast.error('📹 No camera found. Please check your device.');
+      } else if (errorMsg.includes('NotReadableError') || errorMsg.includes('in use')) {
+        toast.error('📹 Camera is already in use by another app. Close it and try again.');
+      } else if (errorMsg.includes('AbortError')) {
+        toast.error('📹 Camera access was aborted.');
+      } else {
+        toast.error(`📹 Camera error: ${errorMsg}`);
+      }
+
+      throw err;
     }
   };
 
   const stopCamera = () => {
-    mediaStreamRef.current?.getTracks().forEach((t) => t.stop());
+    mediaStreamRef.current?.getTracks().forEach((track) => {
+      track.stop();
+      console.log('🛑 Stopped track:', track.kind);
+    });
     mediaStreamRef.current = null;
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
   };
 
   /* ---------------- GO LIVE ---------------- */
@@ -274,9 +380,19 @@ useEffect(() => {
 
       setEmergencyActive(true);
       setAlertId(alertId);
+
+      // Start camera BEFORE playing sound (audio can block camera on some devices)
+      try {
+        await startCamera();
+      } catch (cameraErr) {
+        console.error('Failed to start camera:', cameraErr);
+        // Don't fail the entire go live - camera is optional, alert is critical
+        toast.warning('⚠️ Camera failed to start, but alert is live. Check camera permissions.');
+      }
+
       toast.success('🔴 You are now live');
 
-      // Play critical alert sound to notify responders
+      // Play critical alert sound to notify responders (after camera is ready)
       await playCritical(5).catch((err) => {
         console.debug('Alert sound play failed:', err);
       });
