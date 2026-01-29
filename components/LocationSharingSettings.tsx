@@ -14,10 +14,12 @@ import EmergencyContactManager from './EmergencyContactManager';
 
 interface LocationSharingSettingsProps {
   onContactsChange?: () => void;
+  onOpenContactModal?: () => void;
 }
 
 export default function LocationSharingSettings({
   onContactsChange,
+  onOpenContactModal,
 }: LocationSharingSettingsProps) {
   const { user } = useAuth();
   const [isEnabled, setIsEnabled] = useState(false);
@@ -122,17 +124,6 @@ export default function LocationSharingSettings({
               : '⭕ Location sharing is disabled'}
           </p>
         </div>
-
-        {/* Info Box */}
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-          <p className="text-sm text-blue-900 font-medium">💡 How it works:</p>
-          <ul className="text-sm text-blue-800 mt-2 space-y-1 list-disc list-inside">
-            <li>Your location updates every 5 seconds</li>
-            <li>Only your emergency contacts can see it</li>
-            <li>Works 24/7 without creating an alert</li>
-            <li>Useful if you lose your phone or need help</li>
-          </ul>
-        </div>
       </div>
 
       {/* Emergency Contacts Section */}
@@ -151,7 +142,7 @@ export default function LocationSharingSettings({
           </div>
 
           <button
-            onClick={() => setShowContactManager(true)}
+            onClick={() => onOpenContactModal ? onOpenContactModal() : setShowContactManager(true)}
             disabled={contacts.length >= 5}
             className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-semibold text-sm transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
           >

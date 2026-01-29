@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic';
 import Modal from '@/components/Modal';
 import ContactLocationTracker from '@/components/ContactLocationTracker';
 import LocationSharingSettings from '@/components/LocationSharingSettings';
+import EmergencyContactModal from '@/components/EmergencyContactModal';
 
 // Dynamically import map component to prevent SSR issues
 const ContactLocationMap = dynamic(() => import('@/components/ContactLocationMap'), {
@@ -25,6 +26,7 @@ export default function HybridLocationSharing() {
   const [currentLocation, setCurrentLocation] = useState<LocationData | null>(null);
   const [locationError, setLocationError] = useState<string | null>(null);
   const [sharingDuration, setSharingDuration] = useState<number>(0);
+  const [showContactModal, setShowContactModal] = useState(false);
 
   // Timer for SOS and sharing duration
   useEffect(() => {
@@ -138,7 +140,52 @@ export default function HybridLocationSharing() {
 
       <div className="max-w-5xl mx-auto space-y-6">
 
-        {/* ================= STATUS CARD (PROMINENT) ================= */}
+        {/* ================= HOW IT WORKS & SAFETY TIPS CARD ================= */}
+        <div className="bg-gradient-to-br from-blue-900/40 to-blue-800/30 border border-blue-500/50 rounded-2xl p-6 space-y-4">
+          <div>
+            <h2 className="text-xl font-bold text-blue-200 mb-3">💡 How Location Sharing Works</h2>
+            <ul className="space-y-2 text-sm text-blue-100">
+              <li className="flex items-start gap-2">
+                <span className="text-blue-400 font-bold">✓</span>
+                <span>Your location updates every 5 seconds</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="text-blue-400 font-bold">✓</span>
+                <span>Only your emergency contacts can see it</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="text-blue-400 font-bold">✓</span>
+                <span>Works 24/7 without creating an alert</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="text-blue-400 font-bold">✓</span>
+                <span>Useful if you lose your phone or need help</span>
+              </li>
+            </ul>
+          </div>
+
+          <div className="border-t border-blue-400/30 pt-4">
+            <h3 className="text-lg font-bold text-blue-200 mb-3">🛡️ Safety Tips</h3>
+            <ul className="space-y-2 text-sm text-blue-100">
+              <li className="flex items-start gap-2">
+                <span className="text-blue-400 font-bold">•</span>
+                <span>Enable location sharing when traveling alone or in unsafe areas</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="text-blue-400 font-bold">•</span>
+                <span>Keep your trusted contacts updated and verified</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="text-blue-400 font-bold">•</span>
+                <span>Use SOS only in genuine emergencies</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="text-blue-400 font-bold">•</span>
+                <span>Review location sharing settings regularly</span>
+              </li>
+            </ul>
+          </div>
+        </div>
         <div
           className={`rounded-2xl p-6 border-2 shadow-lg transition-all duration-300 ${
             sosActive
@@ -319,19 +366,14 @@ export default function HybridLocationSharing() {
           <h3 className="font-bold text-lg mb-4 flex items-center gap-2">
             ⚙️ Sharing Settings
           </h3>
-          <LocationSharingSettings />
+          <LocationSharingSettings onOpenContactModal={() => setShowContactModal(true)} />
         </div>
 
-        {/* ================= INFO BANNER ================= */}
-        <div className="bg-blue-900/20 border border-blue-700/50 rounded-2xl p-4 text-sm text-blue-200">
-          <p className="font-semibold mb-2">💡 Safety Tips:</p>
-          <ul className="space-y-1 text-xs">
-            <li>• Enable location sharing when traveling alone or in unsafe areas</li>
-            <li>• Keep your trusted contacts updated and verified</li>
-            <li>• Use SOS only in genuine emergencies</li>
-            <li>• Review location sharing settings regularly</li>
-          </ul>
-        </div>
+        {/* ================= EMERGENCY CONTACT MODAL ================= */}
+        <EmergencyContactModal
+          isOpen={showContactModal}
+          onClose={() => setShowContactModal(false)}
+        />
 
       </div>
     </div>
