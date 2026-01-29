@@ -1,13 +1,16 @@
 'use client';
 
+export const dynamic = 'force-dynamic';
+
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import dynamic from 'next/dynamic';
+import dynamicImport from 'next/dynamic';
 
 import GoLiveButton from '../components/GoLiveButton';
 import SOSButton from '../components/SOSButton';
 import LoadingIndicator from '../components/LoadingIndicator';
 import Modal from '../components/Modal';
+import LiveRespondersList from '../components/LiveRespondersList';
 
 import { supabase } from '../utils/supabaseClient';
 import { useContacts } from '../hooks/useContacts';
@@ -28,7 +31,7 @@ import {
 import { toast } from 'sonner';
 
 // ⚡ PERFORMANCE: Lazy load expensive map component
-const ResponderMap = dynamic(() => import('../components/ResponderMap'), {
+const ResponderMap = dynamicImport(() => import('../components/ResponderMap'), {
   ssr: false,
   loading: () => <div className="h-96 bg-gray-200 animate-pulse rounded-lg" />,
 });
@@ -95,9 +98,12 @@ export default function HomePage() {
   /* ---------------- AUTH ---------------- */
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
-      if (!data.user) router.replace('/landing');
-      else setIsAuthenticated(true);
       setAuthChecked(true);
+      if (!data.user) {
+        router.replace('/landing');
+      } else {
+        setIsAuthenticated(true);
+      }
     });
   }, [router]);
 
@@ -217,7 +223,9 @@ useEffect(() => {
   /* ---------------- CAMERA SETUP WITH PROPER CONSTRAINTS & ERROR HANDLING ---------------- */
   const startCamera = async () => {
     try {
-      // Check permission first on mobile - only on browsers that support it
+      console.log('📹 Attempting to start camera...');
+      
+      // Check permission first on mobile
       try {
         if ('permissions' in navigator && 'query' in navigator.permissions) {
           const hasPermission = await checkCameraPermission();
@@ -226,56 +234,124 @@ useEffect(() => {
           }
         }
       } catch (permErr) {
-        console.warn('Could not check permissions:', permErr);
-        // Continue anyway - might work
+        console.warn('⚠️ Could not check permissions:', permErr);
       }
 
-      const constraints = {
+      const videoConstraints = {
         video: {
           facingMode: 'user',
           width: { ideal: 1280 },
           height: { ideal: 720 },
           frameRate: { ideal: 30 },
         },
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
       };
 
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      mediaStreamRef.current = stream;
+      let stream: MediaStream | null = null;
 
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.onloadedmetadata = () => {
-          videoRef.current?.play().catch((err) => {
-            console.error('Video play failed:', err);
-            toast.error('Failed to start video playback');
-          });
-        };
+      // Attempt 1: Try with audio + video
+      try {
+        console.log('🎤 Attempting getUserMedia with audio + video...');
+        stream = await navigator.mediaDevices.getUserMedia({
+          ...videoConstraints,
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+        });
+        console.log('✅ Stream acquired with audio + video');
+      } catch (audioErr) {
+        console.warn('⚠️ Audio failed, attempting video-only:', audioErr);
+        // Attempt 2: Try video only
+        try {
+          stream = await navigator.mediaDevices.getUserMedia(videoConstraints);
+          console.log('✅ Stream acquired with video only');
+        } catch (videoErr) {
+          console.error('❌ Video-only also failed:', videoErr);
+          throw videoErr;
+        }
       }
 
+      if (!stream) {
+        throw new Error('Failed to get media stream');
+      }
+
+      mediaStreamRef.current = stream;
+      console.log('📹 Stream tracks:', stream.getTracks().map(t => `${t.kind}:${t.enabled}`));
+
+      if (!videoRef.current) {
+        throw new Error('Video element not found in DOM');
+      }
+
+      videoRef.current.srcObject = stream;
+
+      // Wait for metadata and play with proper error handling
+      await new Promise<void>((resolve, reject) => {
+        if (!videoRef.current) {
+          reject(new Error('Video ref lost'));
+          return;
+        }
+
+        const onLoadedMetadata = async () => {
+          try {
+            console.log('📹 Video metadata loaded, attempting to play...');
+            if (videoRef.current) {
+              const playPromise = videoRef.current.play();
+              if (playPromise !== undefined) {
+                await playPromise;
+                console.log('✅ Video playing successfully');
+              }
+            }
+            videoRef.current?.removeEventListener('loadedmetadata', onLoadedMetadata);
+            resolve();
+          } catch (playErr) {
+            console.error('❌ Play error:', playErr);
+            videoRef.current?.removeEventListener('loadedmetadata', onLoadedMetadata);
+            reject(playErr);
+          }
+        };
+
+        const timeoutId = setTimeout(() => {
+          console.error('❌ Metadata load timeout');
+          videoRef.current?.removeEventListener('loadedmetadata', onLoadedMetadata);
+          reject(new Error('Video metadata failed to load'));
+        }, 5000);
+
+        videoRef.current.addEventListener('loadedmetadata', () => {
+          clearTimeout(timeoutId);
+          onLoadedMetadata();
+        });
+
+        // Fallback: try playing even if metadata hasn't loaded
+        setTimeout(() => {
+          if (videoRef.current && videoRef.current.readyState >= 2) {
+            videoRef.current.play().catch(err => console.warn('Fallback play attempt:', err));
+          }
+        }, 1000);
+      });
+
       console.log('✅ Camera started successfully');
+      toast.success('📹 Camera ready');
     } catch (err) {
       console.error('❌ Camera start failed:', err);
       const errorMsg = err instanceof Error ? err.message : 'Unknown error';
 
-      // Specific error handling
       if (errorMsg.includes('NotAllowedError') || errorMsg.includes('Permission denied')) {
-        toast.error('📹 Camera permission denied. Please enable in browser settings.');
+        toast.error('📹 Camera permission denied. Enable in browser settings.');
       } else if (errorMsg.includes('NotFoundError') || errorMsg.includes('no suitable cameras')) {
-        toast.error('📹 No camera found. Please check your device.');
+        toast.error('📹 No camera found. Check your device.');
       } else if (errorMsg.includes('NotReadableError') || errorMsg.includes('in use')) {
-        toast.error('📹 Camera is already in use by another app. Close it and try again.');
+        toast.error('📹 Camera in use. Close other apps and try again.');
       } else if (errorMsg.includes('AbortError')) {
-        toast.error('📹 Camera access was aborted.');
+        toast.error('📹 Camera access aborted.');
+      } else if (errorMsg.includes('metadata') || errorMsg.includes('timeout')) {
+        toast.error('📹 Camera metadata failed to load. Restart the app.');
       } else {
         toast.error(`📹 Camera error: ${errorMsg}`);
       }
 
-      throw err;
+      // Don't throw - alert can still be active without camera
+      console.warn('⚠️ Camera unavailable, but alert is active (audio-only)');
     }
   };
 
@@ -311,33 +387,14 @@ useEffect(() => {
 
       console.log('Creating alert for user:', uid, 'Location:', userLocation);
 
-      // 2️⃣ Ensure responder row exists (UPSERT first to avoid FK constraint)
-      const { error: responderError } = await supabase
-        .from('responders')
-        .upsert(
-          {
-            id: uid,
-            latitude: userLocation[0],
-            longitude: userLocation[1],
-            available: false, // Not "available" yet, they're in emergency mode
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: 'id' }
-        );
-
-      if (responderError) {
-        console.error('Responder setup error:', responderError);
-        throw new Error('Failed to set up responder tracking: ' + responderError.message);
-      }
-
-      // 3️⃣ Create emergency alert
+      // 2️⃣ Create emergency alert (responder_presence will track viewers)
       const { data: alertData, error: alertError } = await supabase
         .from('emergency_alerts')
         .insert({
           user_id: uid,
           type: 'video',
-          latitude: userLocation[0],
-          longitude: userLocation[1],
+          lat: userLocation[0],
+          lng: userLocation[1],
           status: 'active',
           message: 'Go Live activated',
         })
@@ -357,7 +414,7 @@ useEffect(() => {
       const alertId = String(alertData.id);
       console.log('Alert created successfully:', alertId);
 
-      // 4️⃣ Insert victim into responder_presence (so responders can see they're viewing)
+      // 3️⃣ Insert victim into responder_presence (so responders can see they're viewing)
       const { error: presenceError } = await supabase
         .from('responder_presence')
         .upsert(
@@ -490,6 +547,8 @@ useEffect(() => {
               <Square size={16} /> End Live
             </button>
           </div>
+          {/* LIVE RESPONDERS LIST - INSTAGRAM STYLE */}
+          <LiveRespondersList alertId={alertId} />
         </div>
       )}
 

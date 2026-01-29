@@ -3,6 +3,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/utils/supabaseClient';
+
+export const dynamic = 'force-dynamic';
 import { Bell, Lock, MapPin, LogOut, AlertCircle, CheckCircle, Shield } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
@@ -46,12 +48,12 @@ export default function SettingsPage() {
   useEffect(() => {
     if (authLoading) return;
 
+    setAuthChecked(true);
+
     if (!user) {
       router.replace('/signin');
       return;
     }
-
-    setAuthChecked(true);
   }, [user, authLoading, router]);
 
   // ⚡ PERFORMANCE: Load user role and notification settings in parallel
