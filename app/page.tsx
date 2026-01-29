@@ -11,6 +11,7 @@ import SOSButton from '../components/SOSButton';
 import LoadingIndicator from '../components/LoadingIndicator';
 import Modal from '../components/Modal';
 import LiveRespondersList from '../components/LiveRespondersList';
+import EmergencyUnlockScreen from '../components/EmergencyUnlockScreen';
 
 import { supabase } from '../utils/supabaseClient';
 import { useContacts } from '../hooks/useContacts';
@@ -18,7 +19,9 @@ import { useHistory } from '../hooks/useHistory';
 import { useAuth } from '../hooks/useAuth';
 import { useAlertSound } from '../hooks/useAlertSound';
 import { useNativeBridge, type UseNativeBridgeProps } from '../hooks/useNativeBridge';
-import { useHybridEmergency } from '../hooks/useHybridEmergency';
+import { useLockedPhoneVolume } from '../hooks/useLockedPhoneVolume';
+import { useLockedPhoneShake } from '../hooks/useLockedPhoneShake';
+import { useWakeLock } from '../hooks/useWakeLock';
 
 import {
   Users,
@@ -63,6 +66,7 @@ export default function HomePage() {
   const [alertId, setAlertId] = useState<string | null>(null);
 
   const [showSOSModal, setShowSOSModal] = useState(false);
+  const [showEmergencyUnlock, setShowEmergencyUnlock] = useState(false);
   const [mapState, setMapState] = useState<MapState>('collapsed');
   const [powerButtonReady, setPowerButtonReady] = useState(false);
 
@@ -70,44 +74,67 @@ export default function HomePage() {
   useContacts(userId);
   useHistory(userId);
 
-  // ⚡ HYBRID EMERGENCY SYSTEM: Supports multiple input methods
-  // - Volume Up: Trigger emergency SOS (PWA on Android)
-  // - Volume Down: Show SOS modal (PWA on Android)
-  // - Device Shake: Trigger emergency SOS (PWA on iOS/Android)
-  // - Power Button: Native Android only (via useNativeBridge)
-  // - Arrow Keys: Desktop testing
-  useHybridEmergency({
-    onTrigger: async () => {
-      console.log('🚨 Hybrid emergency triggered - starting Go Live');
-      if (!emergencyActive && !loading) {
-        await handleGoLive();
+  // ✅ LOCKED PHONE EMERGENCY TRIGGERS
+  // When phone is locked, user can shake or press Volume Up to open homepage
+  // Full access to emergency alert, SOS, Go Live features without unlock pattern
+
+  // ✅ Volume Up on locked phone → Opens homepage with emergency features
+  useLockedPhoneVolume({
+    onVolumeUp: () => {
+      console.log('🔊 Volume Up on locked phone - opening homepage');
+      if (!isAuthenticated) {
+        router.push('/');
       }
+      // If already on homepage, volume up will show this screen
+      setShowEmergencyUnlock(true);
     },
-    enabled: isAuthenticated && !emergencyActive,
-    volumeUpEnabled: true,  // ✅ Volume Up = Emergency trigger
-    volumeDownEnabled: false, // Volume Down not used (could show modal)
-    shakeEnabled: true,     // ✅ Device shake = Emergency trigger
-    shakeThreshold: 20,
+    enabled: true,
+    debugMode: true,
+  });
+
+  // ✅ Shake on locked phone → Opens homepage with emergency features
+  useLockedPhoneShake({
+    onShake: () => {
+      console.log('📱 Shake on locked phone - opening homepage');
+      if (!isAuthenticated) {
+        router.push('/');
+      }
+      // If already on homepage, shake will show this screen
+      setShowEmergencyUnlock(true);
+    },
+    enabled: true,
+    threshold: 25, // Higher threshold when locked
+    debugMode: true,
+  });
+
+  // ✅ Keep screen on during emergency
+  useWakeLock({
+    enabled: emergencyActive,
     debugMode: true,
   });
 
   // ⚡ NATIVE POWER BUTTON: Works in native Android app only
-  // PWA users will use volume buttons + shake detection instead
+  // Opens homepage with emergency features like Volume Up and Shake
   const { } = useNativeBridge({
     enabled: isAuthenticated && !emergencyActive,
     onPowerButtonPress: async (event) => {
       console.log('📱 Power button pressed (native):', event);
       if (!emergencyActive && !event.isLongPress) {
-        console.log('🆘 Power button short press - triggering SOS');
-        toast.info('📱 Power button pressed - Activating SOS');
-        await handleGoLive();
+        console.log('🆘 Power button short press - opening homepage');
+        if (!isAuthenticated) {
+          router.push('/');
+        }
+        setShowEmergencyUnlock(true);
       }
     },
     onLongPress: async (event) => {
       console.log('📱 Power button long pressed:', event);
       if (!emergencyActive) {
-        console.log('🆘 Power button long press - showing SOS modal');
-        setShowSOSModal(true);
+        console.log('🆘 Power button long press - opening homepage');
+        if (!isAuthenticated) {
+          router.push('/');
+        }
+        setShowEmergencyUnlock(true);
       }
     },
   });
@@ -625,6 +652,19 @@ useEffect(() => {
             </button>
           ))}
         </Modal>
+      )}
+
+      {/* ✅ EMERGENCY UNLOCK SCREEN - Shown when locked phone trigger activated */}
+      {showEmergencyUnlock && (
+        <EmergencyUnlockScreen
+          onEmergencySOS={async () => {
+            setShowEmergencyUnlock(false);
+            if (!emergencyActive && !loading) {
+              await handleGoLive();
+            }
+          }}
+          isLoading={loading}
+        />
       )}
     </div>
   );

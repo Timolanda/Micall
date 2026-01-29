@@ -1,7 +1,5 @@
 node_modules/
-.env.local bfg.jar
-.next/
+.env.local
 bfg.jar
+.next/
 .vercel
-.env.local
-.env.local

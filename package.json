@@ -13,6 +13,11 @@
   "author": "Your Name",
   "license": "MIT",
   "dependencies": {
+    "@capacitor/app": "^8.0.0",
+    "@capacitor/cli": "^6.2.1",
+    "@capacitor/core": "^8.0.2",
+    "@capacitor/motion": "^8.0.0",
+    "@capacitor/screen-reader": "^8.0.0",
     "@radix-ui/react-slot": "^1.2.4",
     "@supabase/supabase-js": "^2.39.7",
     "@tailwindcss/aspect-ratio": "^0.4.2",
