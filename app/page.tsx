@@ -18,6 +18,7 @@ import { useHistory } from '../hooks/useHistory';
 import { useAuth } from '../hooks/useAuth';
 import { useAlertSound } from '../hooks/useAlertSound';
 import { useNativeBridge, type UseNativeBridgeProps } from '../hooks/useNativeBridge';
+import { useHybridEmergency } from '../hooks/useHybridEmergency';
 
 import {
   Users,
@@ -69,21 +70,41 @@ export default function HomePage() {
   useContacts(userId);
   useHistory(userId);
 
-  // ⚡ INTEGRATE POWER BUTTON: Set up native bridge for power button emergency activation
+  // ⚡ HYBRID EMERGENCY SYSTEM: Supports multiple input methods
+  // - Volume Up: Trigger emergency SOS (PWA on Android)
+  // - Volume Down: Show SOS modal (PWA on Android)
+  // - Device Shake: Trigger emergency SOS (PWA on iOS/Android)
+  // - Power Button: Native Android only (via useNativeBridge)
+  // - Arrow Keys: Desktop testing
+  useHybridEmergency({
+    onTrigger: async () => {
+      console.log('🚨 Hybrid emergency triggered - starting Go Live');
+      if (!emergencyActive && !loading) {
+        await handleGoLive();
+      }
+    },
+    enabled: isAuthenticated && !emergencyActive,
+    volumeUpEnabled: true,  // ✅ Volume Up = Emergency trigger
+    volumeDownEnabled: false, // Volume Down not used (could show modal)
+    shakeEnabled: true,     // ✅ Device shake = Emergency trigger
+    shakeThreshold: 20,
+    debugMode: true,
+  });
+
+  // ⚡ NATIVE POWER BUTTON: Works in native Android app only
+  // PWA users will use volume buttons + shake detection instead
   const { } = useNativeBridge({
     enabled: isAuthenticated && !emergencyActive,
     onPowerButtonPress: async (event) => {
-      console.log('📱 Power button pressed:', event);
-      // Short press: trigger SOS (emergency mode)
+      console.log('📱 Power button pressed (native):', event);
       if (!emergencyActive && !event.isLongPress) {
         console.log('🆘 Power button short press - triggering SOS');
         toast.info('📱 Power button pressed - Activating SOS');
-        await handleGoLive(); // Activate go live when power button pressed
+        await handleGoLive();
       }
     },
     onLongPress: async (event) => {
       console.log('📱 Power button long pressed:', event);
-      // Long press: show confirmation modal
       if (!emergencyActive) {
         console.log('🆘 Power button long press - showing SOS modal');
         setShowSOSModal(true);

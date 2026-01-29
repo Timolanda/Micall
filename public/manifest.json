@@ -1,7 +1,7 @@
 {
   "name": "MiCall Emergency Response",
   "short_name": "MiCall",
-  "description": "Real-time emergency response and coordination platform",
+  "description": "Real-time emergency response and coordination platform - Volume Up to trigger SOS in PWA mode",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
@@ -9,6 +9,7 @@
   "theme_color": "#0066cc",
   "background_color": "#ffffff",
   "categories": ["emergency", "utilities"],
+  "prefer_related_applications": false,
   "screenshots": [
     {
       "src": "/screenshots/1x.png",
@@ -94,7 +95,30 @@
       "purpose": "maskable"
     }
   ],
+  "share_target": {
+    "action": "/share",
+    "method": "POST",
+    "enctype": "application/x-www-form-urlencoded",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url"
+    }
+  },
   "shortcuts": [
+    {
+      "name": "Emergency SOS",
+      "short_name": "SOS",
+      "description": "Trigger emergency alert immediately (Volume Up works too)",
+      "url": "/?action=sos",
+      "icons": [
+        {
+          "src": "/shortcut-sos-96x96.png",
+          "sizes": "96x96",
+          "type": "image/png"
+        }
+      ]
+    },
     {
       "name": "Go Live",
       "short_name": "Live",
