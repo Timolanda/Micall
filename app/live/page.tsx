@@ -1,7 +1,9 @@
 'use client';
 
+export const dynamic = 'force-dynamic';
+
 import { useEffect, useState, useMemo } from 'react';
-import dynamic from 'next/dynamic';
+import dynamicImport from 'next/dynamic';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/utils/supabaseClient';
@@ -14,11 +16,11 @@ import { getIgnoredAlertIds, ignoreAlertFor30Min } from '@/utils/alertIgnore';
 const MAP_HEIGHT = 180;
 
 /* ---------------- SAFE DYNAMIC IMPORTS ---------------- */
-const ResponderLiveViewer = dynamic(
+const ResponderLiveViewer = dynamicImport(
   () => import('@/components/ResponderLiveViewer'),
   { ssr: false }
 );
-const ResponderMap = dynamic(() => import('@/components/ResponderMap'), { ssr: false });
+const ResponderMap = dynamicImport(() => import('@/components/ResponderMap'), { ssr: false });
 
 export interface AlertWithLocation extends Alert {
   lat: number;

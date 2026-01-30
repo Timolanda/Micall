@@ -1,4 +1,7 @@
 'use client';
+
+export const dynamic = 'force-dynamic';
+
 import { useState } from 'react';
 import Modal from '../../components/Modal';
 import { Play, Square, AlertTriangle } from 'lucide-react';

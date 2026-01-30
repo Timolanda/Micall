@@ -1,4 +1,7 @@
 'use client';
+
+export const dynamic = 'force-dynamic';
+
 import { useState } from 'react';
 import { Clock, AlertTriangle, Video, CheckCircle } from 'lucide-react';
 // TODO: Import Supabase hooks for fetching history data

@@ -1,10 +1,12 @@
+'use client';
+
+export const dynamic = 'force-dynamic';
+
 /**
  * Join via Invite Page
  * Allows users to accept an invite code and join the safety circle
  * URL: /auth/join?invite_code=ABC123...
  */
-
-'use client';
 
 import { useEffect, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';

@@ -1,14 +1,16 @@
 'use client';
 
+export const dynamic = 'force-dynamic';
+
 import { useState, useEffect, Suspense } from 'react';
-import dynamic from 'next/dynamic';
+import dynamicImport from 'next/dynamic';
 import Modal from '@/components/Modal';
 import ContactLocationTracker from '@/components/ContactLocationTracker';
 import LocationSharingSettings from '@/components/LocationSharingSettings';
 import EmergencyContactModal from '@/components/EmergencyContactModal';
 
 // Dynamically import map component to prevent SSR issues
-const ContactLocationMap = dynamic(() => import('@/components/ContactLocationMap'), {
+const ContactLocationMap = dynamicImport(() => import('@/components/ContactLocationMap'), {
   ssr: false,
   loading: () => <div className="w-full h-96 bg-gray-200 rounded-lg animate-pulse" />,
 });
