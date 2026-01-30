@@ -12,14 +12,13 @@ const ICE_SERVERS: RTCConfiguration = {
 
 interface Props {
   /**
-   * Parent should return alertId when Go Live is triggered.
-   * app/page.tsx already does this correctly.
+   * Optional callback when emergency alert is created.
+   * This component no longer depends on it.
    */
-  onStart: () => Promise<string | null>;
-  alertId: string | null;
+  onAlertCreated?: (alertId: string) => void;
 }
 
-export default function GoLiveButton({ onStart, alertId: parentAlertId }: Props) {
+export default function GoLiveButton({ onAlertCreated }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const peerRef = useRef<RTCPeerConnection | null>(null);
@@ -28,7 +27,7 @@ export default function GoLiveButton({ onStart, alertId: parentAlertId }: Props)
 
   const [isLive, setIsLive] = useState(false);
   const [starting, setStarting] = useState(false);
-  const [alertId, setAlertId] = useState<string | null>(parentAlertId);
+  const [alertId, setAlertId] = useState<string | null>(null);
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
 
   /* =============== CAMERA CONTROLS =============== */
@@ -80,7 +79,16 @@ export default function GoLiveButton({ onStart, alertId: parentAlertId }: Props)
     setStarting(true);
 
     try {
-      // 1️⃣ Request camera FIRST (independent from backend)
+      // 1️⃣ FAIL FAST: Check authentication
+      const { data: authData, error: authError } = await supabase.auth.getUser();
+      if (authError || !authData.user?.id) {
+        console.error('❌ Auth check failed:', authError);
+        throw new Error('👤 Not authenticated. Please sign in first.');
+      }
+      const uid = authData.user.id;
+      console.log('✅ User authenticated:', uid);
+
+      // 2️⃣ Request camera (independent from backend)
       let stream: MediaStream;
       try {
         stream = await navigator.mediaDevices.getUserMedia({
@@ -89,27 +97,72 @@ export default function GoLiveButton({ onStart, alertId: parentAlertId }: Props)
         });
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Unknown error';
-        console.error('Camera permission denied:', msg);
+        console.error('❌ Camera permission denied:', msg);
         throw new Error(
           `📷 Camera access denied. Please enable permissions in settings: ${msg}`
         );
       }
+      console.log('✅ Camera access granted');
 
-      // 2️⃣ Ensure backend alert exists
-      let generatedAlertId = alertId ?? (await onStart());
-      if (!generatedAlertId) {
+      // 3️⃣ Get user location (required for alert)
+      const userLocation = await new Promise<[number, number] | null>((resolve) => {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => resolve([pos.coords.latitude, pos.coords.longitude]),
+          () => resolve(null),
+          { enableHighAccuracy: true, timeout: 5000 }
+        );
+      });
+
+      if (!userLocation) {
         stream.getTracks().forEach((t) => t.stop());
-        throw new Error('🚨 Emergency alert creation failed. Check your connection.');
+        throw new Error('📍 Unable to get your location. Enable location services.');
       }
-      setAlertId(generatedAlertId);
 
-      // 3️⃣ Attach stream to video element
+      const [lat, lng] = userLocation;
+      console.log('✅ Location acquired:', { lat, lng });
+
+      // 4️⃣ Create emergency alert in Supabase (CRITICAL - must succeed)
+      console.log('📍 Creating emergency alert...');
+      const { data: alertData, error: alertError } = await supabase
+        .from('emergency_alerts')
+        .insert({
+          user_id: uid,
+          status: 'active',
+          lat,
+          lng,
+          type: 'video',
+          message: 'Go Live activated',
+          created_at: new Date().toISOString(),
+        })
+        .select()
+        .single();
+
+      if (alertError) {
+        stream.getTracks().forEach((t) => t.stop());
+        console.error('❌ Alert creation failed:', alertError);
+        
+        // Surface the real error
+        const errorDetail = alertError.message || alertError.code || 'Unknown error';
+        throw new Error(`🚨 Alert creation failed: ${errorDetail}`);
+      }
+
+      if (!alertData?.id) {
+        stream.getTracks().forEach((t) => t.stop());
+        throw new Error('🚨 No alert ID returned from server');
+      }
+
+      const generatedAlertId = String(alertData.id);
+      console.log('✅ Emergency alert created:', generatedAlertId);
+      setAlertId(generatedAlertId);
+      onAlertCreated?.(generatedAlertId);
+
+      // 5️⃣ Attach stream to video element
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
       }
 
-      // 4️⃣ Setup MediaRecorder
+      // 6️⃣ Setup MediaRecorder
       const mimeType = MediaRecorder.isTypeSupported('video/webm')
         ? 'video/webm'
         : MediaRecorder.isTypeSupported('video/mp4')
@@ -127,51 +180,61 @@ export default function GoLiveButton({ onStart, alertId: parentAlertId }: Props)
       };
       recorder.start();
       recorderRef.current = recorder;
+      console.log('✅ MediaRecorder started');
 
-      // 5️⃣ Setup WebRTC
-      const pc = new RTCPeerConnection(ICE_SERVERS);
-      peerRef.current = pc;
-      stream.getTracks().forEach((t) => pc.addTrack(t, stream));
-
-      pc.onicecandidate = async (e) => {
-        if (e.candidate) {
-          try {
-            await supabase.from('webrtc_signals').insert({
-              alert_id: generatedAlertId,
-              type: 'ice',
-              payload: e.candidate,
-            });
-          } catch (err) {
-            console.warn('Failed to send ICE candidate:', err);
-          }
-        }
-      };
-
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-
-      const { error: offerError } = await supabase.from('webrtc_signals').insert({
-        alert_id: generatedAlertId,
-        type: 'offer',
-        payload: offer,
-      });
-      if (offerError) {
-        console.warn('WebRTC signal failed (non-critical):', offerError);
-        // Don't throw - continue without WebRTC
-      }
+      // 7️⃣ Setup WebRTC (TEMPORARILY DISABLED - focus on core alert stability)
+      // const pc = new RTCPeerConnection(ICE_SERVERS);
+      // peerRef.current = pc;
+      // stream.getTracks().forEach((t) => pc.addTrack(t, stream));
+      // console.log('ℹ️ WebRTC disabled for now - core alert is priority');
 
       setIsLive(true);
       toast.success('🔴 You are LIVE - Camera stream active');
+      console.log('✅ Go Live successful');
     } catch (err) {
-      console.error('GoLive error:', err);
+      console.error('❌ GoLive error:', err);
       const errorMessage = err instanceof Error ? err.message : 'Failed to start live stream';
       toast.error(errorMessage);
+      
+      // DEFENSIVE CLEANUP - Reset state on failure
       setIsLive(false);
-      // Clean up on error
-      streamRef.current?.getTracks().forEach((t) => t.stop());
-      peerRef.current?.close();
-      recorderRef.current = null;
+      setAlertId(null); // Reset so retries work
+      
+      // Stop all media tracks
+      streamRef.current?.getTracks().forEach((t) => {
+        try {
+          t.stop();
+          console.log(`🛑 Stopped track: ${t.kind}`);
+        } catch (e) {
+          console.warn('Error stopping track:', e);
+        }
+      });
+
+      // Close peer connection
+      if (peerRef.current) {
+        try {
+          peerRef.current.close();
+          console.log('🛑 Peer connection closed');
+        } catch (e) {
+          console.warn('Error closing peer connection:', e);
+        }
+      }
+
+      // Stop recorder
+      if (recorderRef.current) {
+        try {
+          recorderRef.current.stop();
+          console.log('🛑 Recorder stopped');
+        } catch (e) {
+          console.warn('Error stopping recorder:', e);
+        }
+      }
+
+      // Clear streams and recorder refs
       streamRef.current = null;
+      peerRef.current = null;
+      recorderRef.current = null;
+      chunksRef.current = [];
     } finally {
       setStarting(false);
     }
@@ -180,10 +243,35 @@ export default function GoLiveButton({ onStart, alertId: parentAlertId }: Props)
   /* =============== STOP LIVE =============== */
   const stopLive = async () => {
     try {
-      // Stop recording and tracks
-      recorderRef.current?.stop();
-      streamRef.current?.getTracks().forEach((t) => t.stop());
-      peerRef.current?.close();
+      // Defensive cleanup - try to stop everything
+      if (recorderRef.current) {
+        try {
+          recorderRef.current.stop();
+          console.log('🛑 Recorder stopped');
+        } catch (e) {
+          console.warn('Error stopping recorder:', e);
+        }
+      }
+
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((t) => {
+          try {
+            t.stop();
+            console.log(`🛑 Stopped track: ${t.kind}`);
+          } catch (e) {
+            console.warn('Error stopping track:', e);
+          }
+        });
+      }
+
+      if (peerRef.current) {
+        try {
+          peerRef.current.close();
+          console.log('🛑 Peer connection closed');
+        } catch (e) {
+          console.warn('Error closing peer connection:', e);
+        }
+      }
 
       setIsLive(false);
 
@@ -192,23 +280,47 @@ export default function GoLiveButton({ onStart, alertId: parentAlertId }: Props)
       chunksRef.current = [];
 
       if (alertId) {
-        const { error: uploadError } = await supabase.storage
-          .from('evidence')
-          .upload(`alerts/${alertId}.webm`, blob, { upsert: true });
+        try {
+          const { error: uploadError } = await supabase.storage
+            .from('evidence')
+            .upload(`alerts/${alertId}.webm`, blob, { upsert: true });
 
-        if (uploadError) throw uploadError;
+          if (uploadError) {
+            console.error('❌ Upload error:', uploadError);
+            throw uploadError;
+          }
+          console.log('✅ Recording uploaded');
+        } catch (uploadErr) {
+          console.error('❌ Recording upload failed:', uploadErr);
+          // Non-fatal - continue to update alert status
+        }
 
-        const { error: updateError } = await supabase
-          .from('emergency_alerts')
-          .update({ status: 'ended' })
-          .eq('id', alertId);
+        try {
+          const { error: updateError } = await supabase
+            .from('emergency_alerts')
+            .update({ status: 'ended', updated_at: new Date().toISOString() })
+            .eq('id', Number(alertId));
 
-        if (updateError) throw updateError;
+          if (updateError) {
+            console.error('❌ Status update error:', updateError);
+            throw updateError;
+          }
+          console.log('✅ Alert status updated to ended');
+        } catch (updateErr) {
+          console.error('❌ Alert update failed:', updateErr);
+          // Non-fatal
+        }
       }
+
+      // Clear state
+      setAlertId(null);
+      streamRef.current = null;
+      peerRef.current = null;
+      recorderRef.current = null;
 
       toast.success('✅ Live ended & recording saved');
     } catch (err) {
-      console.error('StopLive error:', err);
+      console.error('❌ StopLive error:', err);
       toast.error(err instanceof Error ? err.message : 'Error ending live');
     }
   };
@@ -234,8 +346,8 @@ export default function GoLiveButton({ onStart, alertId: parentAlertId }: Props)
         {(isLive || streamRef.current) && (
           <button
             onClick={toggleCamera}
-            disabled={starting}
-            className="absolute bottom-3 right-3 bg-blue-600 hover:bg-blue-700 text-white rounded-full p-2 shadow-lg"
+            disabled={starting || !isLive}
+            className="absolute bottom-3 right-3 bg-blue-600 hover:bg-blue-700 text-white rounded-full p-2 shadow-lg disabled:opacity-50"
             title="Switch camera"
           >
             <RotateCw size={18} />

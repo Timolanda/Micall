@@ -567,7 +567,7 @@ useEffect(() => {
       <div className="max-w-4xl mx-auto p-6 pt-20 pb-96">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div className="bg-zinc-900 p-6 rounded-xl flex flex-col items-center">
-            <GoLiveButton onStart={handleGoLive} alertId={alertId} />
+            <GoLiveButton onAlertCreated={(id) => setAlertId(id)} />
             <h3 className="mt-4 font-semibold flex gap-2">
               <Video /> Go Live
             </h3>
