@@ -2,13 +2,12 @@
 
 export const dynamic = 'force-dynamic';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, Suspense } from 'react';
 import { useRouter } from 'next/navigation';
 import dynamicImport from 'next/dynamic';
 
 import GoLiveButton from '../components/GoLiveButton';
 import SOSButton from '../components/SOSButton';
-import LoadingIndicator from '../components/LoadingIndicator';
 import Modal from '../components/Modal';
 import LiveRespondersList from '../components/LiveRespondersList';
 import EmergencyUnlockScreen from '../components/EmergencyUnlockScreen';
@@ -48,14 +47,11 @@ type MapState = 'collapsed' | 'expanded';
 
 export default function HomePage() {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const { playCritical } = useAlertSound();
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
-
-  const [authChecked, setAuthChecked] = useState(false);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [sosLoading, setSOSLoading] = useState(false);
@@ -74,7 +70,17 @@ export default function HomePage() {
   useContacts(userId);
   useHistory(userId);
 
-  // ✅ LOCKED PHONE EMERGENCY TRIGGERS
+  // ✅ REDIRECT IF NOT AUTHENTICATED - HAPPENS FIRST
+  useEffect(() => {
+    if (authLoading) return; // Still loading
+    
+    if (!user) {
+      // User not authenticated - redirect to landing
+      router.replace('/landing');
+    }
+  }, [user, authLoading, router]);
+
+  // ✅ LOCKED PHONE EMERGENCY TRIGGERS - Only enabled if authenticated
   // When phone is locked, user can shake or press Volume Up to open homepage
   // Full access to emergency alert, SOS, Go Live features without unlock pattern
 
@@ -82,13 +88,9 @@ export default function HomePage() {
   useLockedPhoneVolume({
     onVolumeUp: () => {
       console.log('🔊 Volume Up on locked phone - opening homepage');
-      if (!isAuthenticated) {
-        router.push('/');
-      }
-      // If already on homepage, volume up will show this screen
       setShowEmergencyUnlock(true);
     },
-    enabled: true,
+    enabled: !!user,
     debugMode: true,
   });
 
@@ -96,13 +98,9 @@ export default function HomePage() {
   useLockedPhoneShake({
     onShake: () => {
       console.log('📱 Shake on locked phone - opening homepage');
-      if (!isAuthenticated) {
-        router.push('/');
-      }
-      // If already on homepage, shake will show this screen
       setShowEmergencyUnlock(true);
     },
-    enabled: true,
+    enabled: !!user,
     threshold: 25, // Higher threshold when locked
     debugMode: true,
   });
@@ -116,14 +114,11 @@ export default function HomePage() {
   // ⚡ NATIVE POWER BUTTON: Works in native Android app only
   // Opens homepage with emergency features like Volume Up and Shake
   const { } = useNativeBridge({
-    enabled: isAuthenticated && !emergencyActive,
+    enabled: !!user && !emergencyActive,
     onPowerButtonPress: async (event) => {
       console.log('📱 Power button pressed (native):', event);
       if (!emergencyActive && !event.isLongPress) {
         console.log('🆘 Power button short press - opening homepage');
-        if (!isAuthenticated) {
-          router.push('/');
-        }
         setShowEmergencyUnlock(true);
       }
     },
@@ -131,33 +126,18 @@ export default function HomePage() {
       console.log('📱 Power button long pressed:', event);
       if (!emergencyActive) {
         console.log('🆘 Power button long press - opening homepage');
-        if (!isAuthenticated) {
-          router.push('/');
-        }
         setShowEmergencyUnlock(true);
       }
     },
   });
 
   useEffect(() => {
-    setPowerButtonReady(true);
-  }, [isAuthenticated]);
-
-  /* ---------------- AUTH ---------------- */
-  useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
-      setAuthChecked(true);
-      if (!data.user) {
-        router.replace('/landing');
-      } else {
-        setIsAuthenticated(true);
-      }
-    });
-  }, [router]);
+    setPowerButtonReady(!!user);
+  }, [user]);
 
   /* ---------------- LOCATION ---------------- */
   useEffect(() => {
-    if (!isAuthenticated) return;
+    if (!user) return;
 
     const id = navigator.geolocation.watchPosition(
       (pos) =>
@@ -167,11 +147,11 @@ export default function HomePage() {
     );
 
     return () => navigator.geolocation.clearWatch(id);
-  }, [isAuthenticated]);
+  }, [user]);
 
   /* ---------------- RESPONDERS AVAILABLE COUNT ---------------- */
 useEffect(() => {
-  if (!isAuthenticated) return;
+  if (!user) return;
 
   let isMounted = true;
 
@@ -205,7 +185,7 @@ useEffect(() => {
     isMounted = false;
     supabase.removeChannel(channel);
   };
-}, [isAuthenticated]);
+}, [user]);
 
   /* ---------------- ACTIVE RESPONDERS ON CURRENT ALERT (IF LIVE) ---------------- */
   useEffect(() => {
@@ -542,12 +522,21 @@ useEffect(() => {
     }
   };
 
-  if (!authChecked || !isAuthenticated) {
+  if (authLoading) {
+    // Show minimal loading UI while auth resolves
     return (
       <div className="min-h-screen flex items-center justify-center bg-black text-white">
-        <LoadingIndicator label="Loading..." />
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-600 mx-auto mb-4"></div>
+          <p className="text-sm text-gray-400">Loading...</p>
+        </div>
       </div>
     );
+  }
+
+  // After auth resolves, if no user, router.replace() will redirect
+  if (!user) {
+    return null; // Redirect will happen in useEffect
   }
 
   return (

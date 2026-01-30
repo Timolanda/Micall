@@ -3,10 +3,11 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/utils/supabaseClient';
+import { useRouter } from 'next/navigation';
 
 export const dynamic = 'force-dynamic';
+
 import { Bell, Lock, MapPin, LogOut, AlertCircle, CheckCircle, Shield } from 'lucide-react';
-import { useRouter } from 'next/navigation';
 
 // ⚡ PERFORMANCE: Debounce timer for form changes
 let saveDebounceTimer: NodeJS.Timeout | null = null;
@@ -26,7 +27,6 @@ interface NotificationSettings {
 export default function SettingsPage() {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
-  const [authChecked, setAuthChecked] = useState(false);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [userRole, setUserRole] = useState<string | null>(null);
@@ -44,15 +44,13 @@ export default function SettingsPage() {
     enable_popup: true,
   });
 
-  // Check auth and redirect if needed
+  // ✅ REDIRECT IF NOT AUTHENTICATED - HAPPENS FIRST
   useEffect(() => {
-    if (authLoading) return;
-
-    setAuthChecked(true);
+    if (authLoading) return; // Still loading auth
 
     if (!user) {
+      // User not authenticated - redirect to signin
       router.replace('/signin');
-      return;
     }
   }, [user, authLoading, router]);
 
@@ -190,26 +188,20 @@ export default function SettingsPage() {
     setTimeout(() => setMessage(null), 3000);
   };
 
-  if (!authChecked || authLoading) {
+  if (authLoading) {
     return (
       <div className="min-h-screen bg-black text-white flex items-center justify-center p-4">
         <div className="text-center">
-          <AlertCircle className="w-12 h-12 text-blue-500 mx-auto mb-4" />
-          <p>Loading...</p>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
+          <p className="text-sm text-gray-400">Loading...</p>
         </div>
       </div>
     );
   }
 
+  // After auth resolves, if no user, router.replace() will redirect
   if (!user) {
-    return (
-      <div className="min-h-screen bg-black text-white flex items-center justify-center p-4">
-        <div className="text-center">
-          <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
-          <p>Please sign in to access settings</p>
-        </div>
-      </div>
-    );
+    return null; // Redirect will happen in useEffect
   }
 
   return (
