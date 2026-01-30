@@ -9,6 +9,7 @@ import { AdminProvider } from '../hooks/useAdminContext';
 import { Toaster } from 'sonner';
 
 export const metadata: Metadata = {
+  metadataBase: new URL('https://micall.app'),
   title: 'MiCall - Emergency Response Platform',
   description: 'Emergency Response in Your Hands - Connecting victims with responders in real-time',
   manifest: '/manifest.json',
