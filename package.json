@@ -67,11 +67,11 @@
     "typescript": "^5.7.3"
   },
   "engines": {
-    "node": ">=18.0.0",
+    "node": ">=20 <25",
     "npm": ">=9.0.0"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/yourusername/micall.git"
+    "url": "https://github.com/Timolanda/micall.git"
   }
 }
