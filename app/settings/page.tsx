@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { useAuth } from '@/hooks/useAuth';
+import { useAuthOptimized } from '@/hooks/useAuthOptimized';
 import { supabase } from '@/utils/supabaseClient';
 import { useRouter } from 'next/navigation';
 
@@ -26,7 +26,7 @@ interface NotificationSettings {
 
 export default function SettingsPage() {
   const router = useRouter();
-  const { user, loading: authLoading } = useAuth();
+  const { user, loading: authLoading } = useAuthOptimized();
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [userRole, setUserRole] = useState<string | null>(null);

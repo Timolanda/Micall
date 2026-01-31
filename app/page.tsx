@@ -15,7 +15,7 @@ import EmergencyUnlockScreen from '../components/EmergencyUnlockScreen';
 import { supabase } from '../utils/supabaseClient';
 import { useContacts } from '../hooks/useContacts';
 import { useHistory } from '../hooks/useHistory';
-import { useAuth } from '../hooks/useAuth';
+import { useAuthOptimized } from '../hooks/useAuthOptimized';
 import { useAlertSound } from '../hooks/useAlertSound';
 import { useNativeBridge, type UseNativeBridgeProps } from '../hooks/useNativeBridge';
 import { useLockedPhoneVolume } from '../hooks/useLockedPhoneVolume';
@@ -47,7 +47,7 @@ type MapState = 'collapsed' | 'expanded';
 
 export default function HomePage() {
   const router = useRouter();
-  const { user, loading: authLoading } = useAuth();
+  const { user, loading: authLoading } = useAuthOptimized();
   const { playCritical } = useAlertSound();
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
