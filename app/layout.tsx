@@ -1,6 +1,13 @@
 import './globals.css';
 import 'leaflet/dist/leaflet.css';
 import type { Metadata, Viewport } from 'next';
+
+/**
+ * Force all routes to render dynamically at request time.
+ * This prevents static export issues with auth, Supabase, and browser APIs.
+ */
+export const dynamic = 'force-dynamic';
+
 import BottomNavWrapper from '../components/BottomNavWrapper';
 import PWAInstallPrompt from '../components/PWAInstallPrompt';
 import PermissionRequestModal from '../components/PermissionRequestModal';
