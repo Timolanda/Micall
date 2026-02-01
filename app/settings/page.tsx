@@ -199,9 +199,16 @@ export default function SettingsPage() {
     );
   }
 
-  // After auth resolves, if no user, router.replace() will redirect
+  // After auth resolves, if no user, show redirect message instead of blank page
   if (!user) {
-    return null; // Redirect will happen in useEffect
+    return (
+      <div className="min-h-screen bg-black text-white flex items-center justify-center p-4">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
+          <p className="text-sm text-gray-400">Redirecting...</p>
+        </div>
+      </div>
+    );
   }
 
   return (

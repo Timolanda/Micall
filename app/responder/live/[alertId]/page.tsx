@@ -56,10 +56,18 @@ export default function LiveAlertPage({
   /* ======================
      LOADING / GUARDS
   ====================== */
-  if (loading || !user) {
+  if (loading) {
     return (
       <div className="fixed inset-0 bg-black text-white flex items-center justify-center">
         Connecting to live emergency…
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="fixed inset-0 bg-black text-white flex items-center justify-center">
+        Please sign in to view this alert
       </div>
     );
   }

@@ -83,7 +83,11 @@ export default function SecondaryAdminSignupPage() {
 
   if (!user) {
     router.replace('/landing');
-    return null;
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-background">
+        <LoadingIndicator label="Redirecting..." />
+      </div>
+    );
   }
 
   const handleInputChange = (
