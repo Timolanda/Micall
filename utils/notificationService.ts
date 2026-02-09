@@ -130,8 +130,8 @@ export async function sendEmergencyAlert(
             location: location,
             responder_types: responderTypes,
             radius_km: radiusKm,
-            icon: '/icons/icon-192.png',
-            badge: '/icons/badge-72.png',
+            icon: '/icon-192x192.png',
+            badge: '/icon-72x72.png',
             tag: `emergency-${emergencyId}`,
             requireInteraction: true,
             data: {
