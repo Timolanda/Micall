@@ -64,7 +64,8 @@ export async function POST(req: NextRequest) {
     // Step 4: Disable theft mode
     // @ts-ignore - new columns not yet in Supabase auto-generated types
     const { data: profile, error: updateError } = await (supabase
-      .from('profiles')
+      .from('profiles' as any)
+      // @ts-ignore
       .update({
         is_stolen: false,
         stolen_activated_at: null,
