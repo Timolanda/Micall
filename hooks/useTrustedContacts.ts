@@ -35,18 +35,15 @@ export function useTrustedContacts(options: UseTrustedContactsOptions = {}) {
       setLoading(true);
       setError(null);
 
-      // Once backend is ready:
-      // const { data, error: fetchError } = await supabase
-      //   .from('trusted_contacts')
-      //   .select('*')
-      //   .eq('user_id', user.id)
-      //   .order('created_at', { ascending: false });
-      //
-      // if (fetchError) throw fetchError;
-      // setContacts(data || []);
+      const res = await fetch('/api/theft/trusted-contacts');
+      const { data, error: apiError } = await res.json();
+
+      if (apiError) throw new Error(apiError);
+
+      setContacts(data || []);
 
       if (debugMode) {
-        console.log(`📋 [TrustedContacts] Fetched ${contacts.length} contacts`);
+        console.log(`📋 [TrustedContacts] Fetched ${(data || []).length} contacts`);
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to fetch contacts';
@@ -55,7 +52,7 @@ export function useTrustedContacts(options: UseTrustedContactsOptions = {}) {
     } finally {
       setLoading(false);
     }
-  }, [user?.id, debugMode, contacts.length]);
+  }, [user?.id, debugMode]);
 
   /**
    * Load contacts on mount
@@ -82,29 +79,35 @@ export function useTrustedContacts(options: UseTrustedContactsOptions = {}) {
         return false;
       }
 
-      // Normalize phone number
-      const normalizedPhone = contactPhone.replace(/\D/g, '');
-
       try {
         setLoading(true);
+        setError(null);
 
-        // Step 1: Send OTP via Supabase Auth
-        // const { error: otpError } = await supabase.auth.signInWithOtp({
-        //   phone: normalizedPhone,
-        // });
-        //
-        // if (otpError) throw otpError;
+        const res = await fetch('/api/theft/trusted-contacts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contactPhone,
+            contactName,
+          }),
+        });
 
-        if (debugMode) {
-          console.log(`📲 [TrustedContacts] OTP sent to ${normalizedPhone}`);
+        const result = await res.json();
+
+        if (!res.ok) {
+          throw new Error(result.error || 'Failed to add contact');
         }
 
-        toast.info(
-          `📲 OTP sent to ${contactName}. They must verify to be added as trusted contact.`
+        if (debugMode) {
+          console.log(`📲 [TrustedContacts] Contact added: ${contactName}`);
+        }
+
+        toast.success(
+          `📲 OTP sent to ${contactName}. They must verify to complete setup.`
         );
 
-        // Step 2: User enters OTP (handled in parent component)
-        // Step 3: Verify and add contact (in parent component)
+        // Refresh contacts list
+        await fetchContacts();
 
         return true;
       } catch (err) {
@@ -117,7 +120,7 @@ export function useTrustedContacts(options: UseTrustedContactsOptions = {}) {
         setLoading(false);
       }
     },
-    [user?.id, contacts.length, maxContacts, debugMode]
+    [user?.id, contacts.length, maxContacts, debugMode, fetchContacts]
   );
 
   /**
@@ -201,14 +204,15 @@ export function useTrustedContacts(options: UseTrustedContactsOptions = {}) {
       try {
         setLoading(true);
 
-        // Delete from backend
-        // const { error: deleteError } = await supabase
-        //   .from('trusted_contacts')
-        //   .delete()
-        //   .eq('id', contactId)
-        //   .eq('user_id', user.id);
-        //
-        // if (deleteError) throw deleteError;
+        const res = await fetch(`/api/theft/trusted-contacts/${contactId}`, {
+          method: 'DELETE',
+        });
+
+        const result = await res.json();
+
+        if (!res.ok) {
+          throw new Error(result.error || 'Failed to remove contact');
+        }
 
         setContacts((prev) => prev.filter((c) => c.id !== contactId));
         toast.success('✅ Contact removed');

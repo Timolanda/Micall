@@ -35,26 +35,34 @@ export function useTheftModeDetector(options: UseTheftModeDetectorOptions = {}) 
    */
   const fetchTheftStatus = useCallback(async (userId: string): Promise<TheftModeState | null> => {
     try {
-      // Once backend is ready, replace with actual Supabase query
-      // For now, return mock data structure
-      
-      // const { data, error } = await supabase
-      //   .from('profiles')
-      //   .select('is_stolen, stolen_activated_at, device_id')
-      //   .eq('id', userId)
-      //   .single();
-      //
-      // if (error) throw error;
-      // return data ? { isStolen: data.is_stolen, ... } : null;
-
       if (debugMode) {
         console.log(`🔍 [TheftDetector] Fetching theft status for user: ${userId}`);
       }
 
-      // Placeholder - will be replaced with actual API call
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('is_stolen, stolen_activated_at, device_id')
+        .eq('id', userId)
+        .single();
+
+      if (error) {
+        console.error('❌ Failed to fetch theft status:', error);
+        return null;
+      }
+
+      if (data && (data as any).is_stolen) {
+        return {
+          isStolen: true,
+          activatedAt: (data as any).stolen_activated_at,
+          deviceId: (data as any).device_id,
+          alarmStatus: 'inactive',
+          restartCount: 0,
+        };
+      }
+
       return null;
     } catch (err) {
-      console.error('❌ Failed to fetch theft status:', err);
+      console.error('❌ Fetch theft status error:', err);
       return null;
     }
   }, [debugMode]);
