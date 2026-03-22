@@ -54,9 +54,11 @@ export default function SettingsPage() {
     }
   }, [user, authLoading, router]);
 
-  // ⚡ PERFORMANCE: Load user role and notification settings in parallel
+  // ⚡ PERFORMANCE: Load user role and notification settings in parallel - ONCE
   useEffect(() => {
     if (!user) return;
+
+    let isMounted = true;
 
     const loadUserDataInParallel = async () => {
       try {
@@ -73,6 +75,9 @@ export default function SettingsPage() {
             .eq('user_id', user.id)
             .single(),
         ]);
+
+        // Only update state if component still mounted
+        if (!isMounted) return;
 
         // Handle role
         if (!roleResult.error && roleResult.data) {
@@ -96,11 +101,18 @@ export default function SettingsPage() {
           });
         }
       } catch (err) {
-        console.error('Error loading user data:', err);
+        if (isMounted) {
+          console.error('Error loading user data:', err);
+        }
       }
     };
 
     loadUserDataInParallel();
+
+    // Cleanup on unmount
+    return () => {
+      isMounted = false;
+    };
   }, [user]);
 
   // ⚡ PERFORMANCE: Debounced save settings (avoid excessive API calls on rapid changes)

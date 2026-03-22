@@ -12,6 +12,7 @@ import BottomNavWrapper from '../components/BottomNavWrapper';
 import PWAInstallPrompt from '../components/PWAInstallPrompt';
 import PermissionRequestModal from '../components/PermissionRequestModal';
 import ServiceWorkerRegistration from '../components/ServiceWorkerRegistration';
+import { AuthProvider } from '../context/AuthContext';
 import { AdminProvider } from '../hooks/useAdminContext';
 import { Toaster } from 'sonner';
 
@@ -126,20 +127,22 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
       </head>
       <body className="bg-background text-accent min-h-screen flex flex-col">
-        <AdminProvider>
-          {/* Service Worker Registration */}
-          <ServiceWorkerRegistration />
-          
-          {/* PWA Install Prompt */}
-          <PWAInstallPrompt />
-          
-          {/* Notification Permission Modal */}
-          <PermissionRequestModal />
-          
-          <main className="flex-1 flex flex-col">{children}</main>
-          <BottomNavWrapper />
-          <Toaster position="top-center" richColors />
-        </AdminProvider>
+        <AuthProvider>
+          <AdminProvider>
+            {/* Service Worker Registration */}
+            <ServiceWorkerRegistration />
+            
+            {/* PWA Install Prompt */}
+            <PWAInstallPrompt />
+            
+            {/* Notification Permission Modal */}
+            <PermissionRequestModal />
+            
+            <main className="flex-1 flex flex-col">{children}</main>
+            <BottomNavWrapper />
+            <Toaster position="top-center" richColors />
+          </AdminProvider>
+        </AuthProvider>
       </body>
     </html>
   );

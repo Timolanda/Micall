@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useContext, createContext, ReactNode } from 'react';
-import { useAuth } from '@/hooks/useAuth';
+import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/utils/supabaseClient';
 import type { AdminProfile, AdminStats } from '@/types/admin';
 
@@ -28,16 +28,17 @@ const AdminContext = createContext<AdminContextType | undefined>(undefined);
  * Admin Context Provider component
  */
 export function AdminProvider({ children }: { children: ReactNode }) {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const [adminProfile, setAdminProfile] = useState<AdminProfile | null>(null);
   const [adminStats, setAdminStats] = useState<AdminStats | null>(null);
   const [isSecondaryAdmin, setIsSecondaryAdmin] = useState(false);
   const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [initialized, setInitialized] = useState(false);
 
   /**
-   * Fetch admin profile from database
+   * Fetch admin profile from database - ONCE
    */
   const fetchAdminProfile = useCallback(async (userId: string) => {
     try {
@@ -124,19 +125,35 @@ export function AdminProvider({ children }: { children: ReactNode }) {
   }, []);
 
   /**
-   * Initialize admin data when user changes
+   * Initialize admin data once when user loads
+   * CRITICAL: Only runs once to prevent multiple fetches
    */
   useEffect(() => {
+    // Skip if already initialized or auth still loading
+    if (initialized || authLoading) return;
+
+    // Reset if user logged out
     if (!user?.id) {
       setAdminProfile(null);
       setAdminStats(null);
       setIsSecondaryAdmin(false);
+      setIsPlatformAdmin(false);
       setLoading(false);
+      setInitialized(true);
       return;
     }
 
-    fetchAdminProfile(user.id);
-  }, [user?.id, fetchAdminProfile]);
+    // Fetch admin data once
+    (async () => {
+      await fetchAdminProfile(user.id);
+      setInitialized(true);
+    })();
+
+    // Cleanup on unmount
+    return () => {
+      // No cleanup needed, just mark for next use
+    };
+  }, [initialized, authLoading, user?.id, fetchAdminProfile]);
 
   /**
    * Refresh admin profile
