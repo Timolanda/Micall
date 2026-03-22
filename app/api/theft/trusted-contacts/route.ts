@@ -6,47 +6,32 @@
  * POST /api/theft/trusted-contacts - Add new contact
  */
 
-import { supabase } from '@/utils/supabaseClient';
 import { NextRequest, NextResponse } from 'next/server';
+import { supabase } from '@/utils/supabaseClient';
+import {
+  getAuthenticatedUser,
+  getTrustedContacts,
+} from '@/utils/theftApiHelpers';
 
 /**
  * GET - Retrieve all trusted contacts for the authenticated user
  */
 export async function GET(req: NextRequest) {
   try {
-    // Get the authenticated user's session
-    const {
-      data: { session },
-      error: sessionError,
-    } = await supabase.auth.getSession();
-
-    if (sessionError || !session) {
-      return NextResponse.json(
-        { error: 'User not authenticated' },
-        { status: 401 }
-      );
-    }
+    // Get the authenticated user
+    const user = await getAuthenticatedUser();
 
     // Fetch all trusted contacts for this user
-    const { data: contacts, error: fetchError } = await supabase
-      .from('trusted_contacts')
-      .select('*')
-      .eq('user_id', session.user.id)
-      .order('created_at', { ascending: false });
-
-    if (fetchError) {
-      console.error('❌ Failed to fetch contacts:', fetchError);
-      throw fetchError;
-    }
+    const contacts = await getTrustedContacts(user.id);
 
     console.log('✅ Fetched contacts:', {
-      userId: session.user.id,
-      count: contacts?.length || 0,
+      userId: user.id,
+      count: contacts.length,
     });
 
     return NextResponse.json({
-      data: contacts || [],
-      count: contacts?.length || 0,
+      data: contacts,
+      count: contacts.length,
     });
   } catch (error) {
     console.error('❌ Get contacts error:', error);
@@ -65,18 +50,8 @@ export async function GET(req: NextRequest) {
  */
 export async function POST(req: NextRequest) {
   try {
-    // Get the authenticated user's session
-    const {
-      data: { session },
-      error: sessionError,
-    } = await supabase.auth.getSession();
-
-    if (sessionError || !session) {
-      return NextResponse.json(
-        { error: 'User not authenticated' },
-        { status: 401 }
-      );
-    }
+    // Get the authenticated user
+    const user = await getAuthenticatedUser();
 
     // Parse request body
     const { contactPhone, contactName } = await req.json();
@@ -103,7 +78,7 @@ export async function POST(req: NextRequest) {
     const { data: existingContact } = await supabase
       .from('trusted_contacts')
       .select('id')
-      .eq('user_id', session.user.id)
+      .eq('user_id', user.id)
       .eq('contact_phone', normalizedPhone)
       .single();
 
@@ -118,7 +93,7 @@ export async function POST(req: NextRequest) {
     const { data: allContacts, error: countError } = await supabase
       .from('trusted_contacts')
       .select('id')
-      .eq('user_id', session.user.id);
+      .eq('user_id', user.id);
 
     if (countError) throw countError;
 
@@ -133,7 +108,7 @@ export async function POST(req: NextRequest) {
     const { data: newContact, error: insertError } = await (supabase as any)
       .from('trusted_contacts')
       .insert({
-        user_id: session.user.id,
+        user_id: user.id,
         contact_phone: normalizedPhone,
         contact_name: contactName,
         verified: false,
@@ -147,7 +122,7 @@ export async function POST(req: NextRequest) {
     }
 
     console.log('✅ Contact added (awaiting OTP):', {
-      userId: session.user.id,
+      userId: user.id,
       contact: contactName,
       phone: normalizedPhone,
     });

@@ -5,8 +5,9 @@
  * DELETE /api/theft/trusted-contacts/[contactId]
  */
 
-import { supabase } from '@/utils/supabaseClient';
 import { NextRequest, NextResponse } from 'next/server';
+import { supabase } from '@/utils/supabaseClient';
+import { getAuthenticatedUser } from '@/utils/theftApiHelpers';
 
 export async function DELETE(
   req: NextRequest,
@@ -14,17 +15,7 @@ export async function DELETE(
 ) {
   try {
     // Verify user is authenticated
-    const {
-      data: { session },
-      error: sessionError,
-    } = await supabase.auth.getSession();
-
-    if (sessionError || !session) {
-      return NextResponse.json(
-        { error: 'User not authenticated' },
-        { status: 401 }
-      );
-    }
+    const user = await getAuthenticatedUser();
 
     // Verify ownership of contact
     const { data: contact, error: checkError } = await (supabase
@@ -40,7 +31,7 @@ export async function DELETE(
       );
     }
 
-    if ((contact as any)?.user_id !== session.user.id) {
+    if ((contact as any)?.user_id !== user.id) {
       return NextResponse.json(
         { error: 'Cannot delete contacts for other users' },
         { status: 403 }
@@ -60,7 +51,7 @@ export async function DELETE(
 
     console.log('✅ Contact deleted:', {
       contactId: params.contactId,
-      userId: session.user.id,
+      userId: user.id,
     });
 
     return NextResponse.json({

@@ -6,8 +6,12 @@
  * POST /api/theft/disable-theft-mode
  */
 
-import { supabase } from '@/utils/supabaseClient';
 import { NextRequest, NextResponse } from 'next/server';
+import {
+  getAuthenticatedUser,
+  updateTheftStatus,
+  logTheftAction,
+} from '@/utils/theftApiHelpers';
 
 interface DisableRequest {
   userId?: string;
@@ -20,25 +24,12 @@ export async function POST(req: NextRequest) {
     // Parse request body
     const { userId, authenticationMethod, pinCode }: DisableRequest = await req.json();
 
-    // Supabase client ready from singleton import
-
-    // Step 1: Get the authenticated user session
-    const {
-      data: { session },
-      error: sessionError,
-    } = await supabase.auth.getSession();
-
-    if (sessionError || !session) {
-      return NextResponse.json(
-        { error: 'User not authenticated' },
-        { status: 401 }
-      );
-    }
+    // Step 1: Get the authenticated user
+    const user = await getAuthenticatedUser();
+    const targetUserId = userId || user.id;
 
     // Step 2: Verify that the requesting user is the owner of the device
-    const targetUserId = userId || session.user.id;
-
-    if (session.user.id !== targetUserId) {
+    if (user.id !== targetUserId) {
       return NextResponse.json(
         { error: 'Cannot disable theft mode for other users' },
         { status: 403 }
@@ -49,10 +40,6 @@ export async function POST(req: NextRequest) {
     if (authenticationMethod === 'pin' && pinCode) {
       // In production, hash and compare PIN
       // For now, simple validation - replace with proper hashing
-      const hashedPin = Buffer.from(pinCode).toString('base64');
-
-      // Placeholder - integrate with actual PIN verification service
-      // For demo: accept any 4-digit PIN
       if (!/^\d{4}$/.test(pinCode)) {
         return NextResponse.json(
           { error: 'Invalid PIN format' },
@@ -62,52 +49,30 @@ export async function POST(req: NextRequest) {
     }
 
     // Step 4: Disable theft mode
-    // @ts-ignore - new columns not yet in Supabase auto-generated types
-    const { data: profile, error: updateError } = await (supabase
-      .from('profiles' as any)
-      // @ts-ignore
-      .update({
-        is_stolen: false,
-        stolen_activated_at: null,
-      } as any)
-      .eq('id', targetUserId)
-      .select()
-      .single() as any);
-
-    if (updateError) {
-      console.error('❌ Failed to disable theft mode:', updateError);
-      throw updateError;
-    }
+    const profile = await updateTheftStatus(targetUserId, false);
 
     console.log('✅ Theft mode disabled:', {
       userId: targetUserId,
-      disabledBy: session.user.email,
+      disabledBy: user.email,
       timestamp: new Date().toISOString(),
     });
 
     // Step 5: Log this disable action for audit trail
-    // @ts-ignore - theft_mode_log is new table not in auto-generated types
-    await supabase
-      .from('theft_mode_log')
-      // @ts-ignore
-      .insert({
-        user_id: targetUserId,
-        disabled_by: session.user.email,
-        action: 'disabled',
-        authentication_method: authenticationMethod,
-        timestamp: new Date().toISOString(),
-      });
+    await logTheftAction(targetUserId, 'theft_mode_disabled', {
+      disabled_by: user.email,
+      authentication_method: authenticationMethod,
+    });
 
     return NextResponse.json({
       success: true,
       message: 'Theft mode disabled successfully',
       data: {
-        is_stolen: false,
+        is_stolen: profile?.is_stolen,
         disabled_at: new Date().toISOString(),
       },
     });
   } catch (error) {
-    console.error('❌ Disable theft mode error:', error);
+    console.error('❌ Disable theft error:', error);
     return NextResponse.json(
       {
         error: error instanceof Error ? error.message : 'Internal server error',
