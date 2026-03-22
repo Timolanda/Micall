@@ -51,7 +51,7 @@ export async function verifyTrustedContact(
   contactPhone: string
 ): Promise<any> {
   // @ts-ignore - new table not in auto-generated types
-  const { data: contact, error } = await supabase
+  const { data: contact, error } = await (supabase as any)
     .from('trusted_contacts')
     .select('*')
     .eq('user_id', userId)
@@ -71,12 +71,12 @@ export async function verifyTrustedContact(
  */
 export async function logTheftAction(
   userId: string,
-  action: 'theft_mode_triggered' | 'theft_mode_disabled',
+  action: string,
   metadata: Record<string, any> = {}
 ): Promise<void> {
   try {
     // @ts-ignore - new table not in auto-generated types
-    await supabase
+    await (supabase as any)
       .from('theft_mode_log')
       .insert({
         user_id: userId,
@@ -95,7 +95,7 @@ export async function logTheftAction(
  */
 export async function getTrustedContacts(userId: string): Promise<any[]> {
   // @ts-ignore - new table not in auto-generated types
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from('trusted_contacts')
     .select('*')
     .eq('user_id', userId)
@@ -109,39 +109,66 @@ export async function getTrustedContacts(userId: string): Promise<any[]> {
 }
 
 /**
- * Get a specific trusted contact
+ * Add a trusted contact
  */
-export async function getTrustedContact(
+export async function addTrustedContact(
   userId: string,
-  contactId: string
+  contactPhone: string,
+  contactName: string
 ): Promise<any> {
   // @ts-ignore - new table not in auto-generated types
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from('trusted_contacts')
-    .select('*')
-    .eq('id', contactId)
-    .eq('user_id', userId)
+    .insert({
+      user_id: userId,
+      contact_phone: contactPhone,
+      contact_name: contactName,
+      verified: false,
+    })
+    .select()
     .single();
 
-  if (error) {
-    throw error;
-  }
+  if (error) throw error;
 
   return data;
 }
 
 /**
- * Update profile theft status
+ * Remove a trusted contact
+ */
+export async function removeTrustedContact(
+  userId: string,
+  contactId: string
+): Promise<boolean> {
+  // @ts-ignore - new table not in auto-generated types
+  const { error } = await (supabase as any)
+    .from('trusted_contacts')
+    .delete()
+    .eq('id', contactId)
+    .eq('user_id', userId);
+
+  if (error) throw error;
+
+  return true;
+}
+
+/**
+ * Update profile theft status - ONLY updates valid columns
  */
 export async function updateTheftStatus(
   userId: string,
-  isStolen: boolean,
-  activatedAt?: string
+  isStolen: boolean
 ): Promise<any> {
-  const updateData: any = {
+  const updateData: Record<string, any> = {
     is_stolen: isStolen,
-    stolen_activated_at: isStolen ? activatedAt || new Date().toISOString() : null,
   };
+
+  // Only add timestamp if activating (not deactivating)
+  if (isStolen) {
+    updateData.stolen_activated_at = new Date().toISOString();
+  } else {
+    updateData.stolen_activated_at = null;
+  }
 
   // @ts-ignore - new columns not in auto-generated types
   const { data, error } = await (supabase as any)
@@ -156,4 +183,25 @@ export async function updateTheftStatus(
   }
 
   return data;
+}
+
+/**
+ * Get theft mode status for a user
+ */
+export async function getTheftStatus(userId: string): Promise<any> {
+  // @ts-ignore - new columns not in auto-generated types
+  const { data, error } = await (supabase as any)
+    .from('profiles')
+    .select('id, is_stolen, stolen_activated_at')
+    .eq('id', userId)
+    .single();
+
+  if (error) throw error;
+
+  return data
+    ? {
+        isStolen: data.is_stolen || false,
+        activatedAt: data.stolen_activated_at || null,
+      }
+    : null;
 }

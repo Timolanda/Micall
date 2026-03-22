@@ -6,8 +6,11 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import {
+  getAuthenticatedUser,
+  removeTrustedContact,
+} from '@/utils/theftApiHelpers';
 import { supabase } from '@/utils/supabaseClient';
-import { getAuthenticatedUser } from '@/utils/theftApiHelpers';
 
 export async function DELETE(
   req: NextRequest,
@@ -39,15 +42,7 @@ export async function DELETE(
     }
 
     // Delete the contact
-    const { error: deleteError } = await (supabase
-      .from('trusted_contacts')
-      .delete()
-      .eq('id', params.contactId) as any);
-
-    if (deleteError) {
-      console.error('❌ Failed to delete contact:', deleteError);
-      throw deleteError;
-    }
+    await removeTrustedContact(user.id, params.contactId);
 
     console.log('✅ Contact deleted:', {
       contactId: params.contactId,

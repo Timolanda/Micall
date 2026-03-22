@@ -7,11 +7,12 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { supabase } from '@/utils/supabaseClient';
 import {
   getAuthenticatedUser,
   getTrustedContacts,
+  addTrustedContact,
 } from '@/utils/theftApiHelpers';
+import { supabase } from '@/utils/supabaseClient';
 
 /**
  * GET - Retrieve all trusted contacts for the authenticated user
@@ -74,52 +75,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Step 1: Check if contact already exists
-    const { data: existingContact } = await supabase
-      .from('trusted_contacts')
-      .select('id')
-      .eq('user_id', user.id)
-      .eq('contact_phone', normalizedPhone)
-      .single();
-
-    if (existingContact) {
-      return NextResponse.json(
-        { error: 'This contact is already in your list' },
-        { status: 400 }
-      );
-    }
-
-    // Step 2: Check contact limit (max 5)
-    const { data: allContacts, error: countError } = await supabase
-      .from('trusted_contacts')
-      .select('id')
-      .eq('user_id', user.id);
-
-    if (countError) throw countError;
-
-    if ((allContacts?.length || 0) >= 5) {
-      return NextResponse.json(
-        { error: 'Maximum 5 trusted contacts allowed' },
-        { status: 400 }
-      );
-    }
-
-    // Step 3: Insert the contact (unverified initially)
-    const { data: newContact, error: insertError } = await (supabase as any)
-      .from('trusted_contacts')
-      .insert({
-        user_id: user.id,
-        contact_phone: normalizedPhone,
-        contact_name: contactName,
-        verified: false,
-      })
-      .select()
-      .single();
-
-    if (insertError) {
-      console.error('❌ Failed to insert contact:', insertError);
-      throw insertError;
-    }
+    // Add the contact using helper
+    const newContact = await addTrustedContact(
+      user.id,
+      normalizedPhone,
+      contactName
+    );
 
     console.log('✅ Contact added (awaiting OTP):', {
       userId: user.id,

@@ -54,7 +54,6 @@ export async function POST(req: NextRequest) {
       data: {
         is_stolen: profile?.is_stolen,
         activated_at: profile?.stolen_activated_at,
-        device_id: profile?.device_id,
         triggered_by: contact?.contact_name,
       },
     });
