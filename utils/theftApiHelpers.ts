@@ -138,13 +138,15 @@ export async function updateTheftStatus(
   isStolen: boolean,
   activatedAt?: string
 ): Promise<any> {
+  const updateData: any = {
+    is_stolen: isStolen,
+    stolen_activated_at: isStolen ? activatedAt || new Date().toISOString() : null,
+  };
+
   // @ts-ignore - new columns not in auto-generated types
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from('profiles')
-    .update({
-      is_stolen: isStolen,
-      stolen_activated_at: isStolen ? activatedAt || new Date().toISOString() : null,
-    } as any)
+    .update(updateData)
     .eq('id', userId)
     .select()
     .single();
