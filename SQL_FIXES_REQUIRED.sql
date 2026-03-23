@@ -32,7 +32,8 @@ CREATE INDEX IF NOT EXISTS idx_trusted_contacts_phone ON trusted_contacts(contac
 ALTER TABLE trusted_contacts ENABLE ROW LEVEL SECURITY;
 
 -- RLS Policy: Users can only manage their own contacts
-CREATE POLICY IF NOT EXISTS "Users can manage their own contacts"
+DROP POLICY IF EXISTS "Users can manage their own contacts" ON trusted_contacts;
+CREATE POLICY "Users can manage their own contacts"
   ON trusted_contacts FOR ALL
   USING (auth.uid() = user_id)
   WITH CHECK (auth.uid() = user_id);
@@ -58,7 +59,8 @@ CREATE INDEX IF NOT EXISTS idx_theft_mode_log_timestamp ON theft_mode_log(timest
 ALTER TABLE theft_mode_log ENABLE ROW LEVEL SECURITY;
 
 -- RLS Policy: Users can only view their own logs
-CREATE POLICY IF NOT EXISTS "Users can view their own theft logs"
+DROP POLICY IF EXISTS "Users can view their own theft logs" ON theft_mode_log;
+CREATE POLICY "Users can view their own theft logs"
   ON theft_mode_log FOR SELECT
   USING (auth.uid() = user_id);
 
@@ -98,7 +100,8 @@ CREATE INDEX IF NOT EXISTS idx_responder_presence_alert_user ON responder_presen
 ALTER TABLE responder_presence ENABLE ROW LEVEL SECURITY;
 
 -- RLS Policies for responder_presence
-CREATE POLICY IF NOT EXISTS "Users can view responder presence on their alerts"
+DROP POLICY IF EXISTS "Users can view responder presence on their alerts" ON responder_presence;
+CREATE POLICY "Users can view responder presence on their alerts"
   ON responder_presence FOR SELECT
   USING (
     alert_id IN (
@@ -107,11 +110,13 @@ CREATE POLICY IF NOT EXISTS "Users can view responder presence on their alerts"
     OR user_id = auth.uid()
   );
 
-CREATE POLICY IF NOT EXISTS "Responders can insert their own presence"
+DROP POLICY IF EXISTS "Responders can insert their own presence" ON responder_presence;
+CREATE POLICY "Responders can insert their own presence"
   ON responder_presence FOR INSERT
   WITH CHECK (user_id = auth.uid());
 
-CREATE POLICY IF NOT EXISTS "Responders can update their own presence"
+DROP POLICY IF EXISTS "Responders can update their own presence" ON responder_presence;
+CREATE POLICY "Responders can update their own presence"
   ON responder_presence FOR UPDATE
   USING (user_id = auth.uid())
   WITH CHECK (user_id = auth.uid());
